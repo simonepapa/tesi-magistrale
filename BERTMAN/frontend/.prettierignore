@@ -1,0 +1,36 @@
+# Ignore build artifacts
+dist
+node_modules
+.next
+.nuxt
+.cache
+.vercel
+.netlify
+.turbo
+
+# Ignore build info files
+*.tsbuildinfo
+
+# Ignore binary files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.webp
+*.ttf
+*.woff
+*.woff2
+*.eot
+*.otf
+
+# Ignore lock files and logs
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+*.log
+
+# Ignore coverage
+coverage
+.nyc_output

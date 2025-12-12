@@ -1,0 +1,32 @@
+# Node modules
+node_modules/
+BERTMAN/node_modules
+BERTMAN/backend/api/node_modules
+
+# Python cache
+__pycache__/
+BERTMAN/backend/classifier/__pycache__
+
+# Large model files
+BERTMAN/backend/classifier/data/bert_fine_tuned_model/model.safetensors
+
+# Environment files
+.env
+
+# Scraper folder
+scraper/news
+scraper/scraper_baritoday.py
+scraper/scraper_repubblica.py
+scraper/scraper_telebari.py
+
+scraper/compare_deduplication.py
+scraper/comparison_results.json
+scraper/deduplicate_clustering.py
+scraper/deduplicate_hdbscan.py
+
+# Test set
+datasets/full_test_set.json
+datasets/test_set.json
+
+# Other
+docs

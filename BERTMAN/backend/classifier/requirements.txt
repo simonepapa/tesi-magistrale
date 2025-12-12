@@ -1,0 +1,6 @@
+Flask==3.1.0
+Flask_Cors==5.0.0
+pandas==2.2.3
+scikit_learn==1.6.1
+torch==2.6.0
+transformers==4.48.1

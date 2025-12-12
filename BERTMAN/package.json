@@ -1,0 +1,17 @@
+{
+  "scripts": {
+    "prepare": "husky install",
+    "dev": "concurrently --names \"FRONTEND,API,CLASSIFIER\" --prefix-colors \"cyan,yellow,magenta\" \"npm --prefix frontend run dev\" \"npm --prefix backend/api run dev\" \"cd backend/classifier && python app.py\""
+  },
+  "devDependencies": {
+    "husky": "^9.1.6",
+    "lint-staged": "^15.2.10",
+    "concurrently": "^8.2.2"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,css,md}": [
+      "npm --prefix frontend run lint -- --fix",
+      "npm --prefix frontend run prettier --"
+    ]
+  }
+}
