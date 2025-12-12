@@ -22,6 +22,9 @@ import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 load_dotenv(find_dotenv())
 
@@ -36,10 +39,10 @@ MODEL_NAME = "gemma-3-12b-it"
 
 # Gemma config: the greater the temperature, the more variety in the news
 generation_config_crimine = {
-    "temperature": 0.7,
+    "temperature": 0.9,
 }
 generation_config_non_crimine = {
-    "temperature": 0.85,
+    "temperature": 0.95,
 }
 
 model_crimine = genai.GenerativeModel(model_name=MODEL_NAME, generation_config=generation_config_crimine)
@@ -97,6 +100,21 @@ stili_giornalistici = [
     "Scrivi in tono sobrio e istituzionale, citando fonti ufficiali.",
     "Scrivi in tono narrativo, raccontando la vicenda come una storia.",
     "Scrivi in modo conciso, solo i fatti essenziali in poche righe.",
+    "Scrivi con tono emotivo, enfatizzando l'impatto sulla comunità.",
+    "Scrivi in stile investigativo, con dettagli sulle indagini in corso.",
+    "Scrivi in tono distaccato e cronachistico.",
+]
+
+# --- Time of day for variety ---
+momenti_giornata = [
+    "nelle prime ore del mattino",
+    "in tarda mattinata",
+    "nel primo pomeriggio",
+    "nel tardo pomeriggio",
+    "in serata",
+    "nella tarda serata",
+    "nella notte",
+    "all'alba",
 ]
 
 # --- ENHANCE DATASET WITH AMBIGUITY ---
@@ -138,10 +156,126 @@ DEFAULT_BATCHES_CRIME = 60       # Per category (13 categories) = ~3900 articles
 DEFAULT_BATCHES_NON_CRIME = 700  # = ~3500 articles
 DEFAULT_BATCHES_AMBIGUOUS = 35   # = ~175 articles
 MAX_CONSECUTIVE_ERRORS = 10
+MAX_RETRIES_MULTIPLIER = 3       # Maximum retries = target * this multiplier
+
+# --- DEDUPLICATION SETTINGS ---
+SIMILARITY_THRESHOLD = 0.85  # Reject articles with similarity >= this
+MIN_ARTICLES_FOR_SIMILARITY_CHECK = 10  # Start checking after N articles
+REFIT_VECTORIZER_EVERY = 50  # Refit the vectorizer every N articles
+
+
+class DuplicateDetector:
+    """
+    Detects duplicate and similar articles using TF-IDF and cosine similarity.
+    """
+    
+    def __init__(self, similarity_threshold=SIMILARITY_THRESHOLD):
+        """
+        Initialize the duplicate detector.
+        
+        :param similarity_threshold: float: Minimum similarity to consider as duplicate
+        """
+        self.texts = []
+        self.titles = set()
+        self.similarity_threshold = similarity_threshold
+        self.vectorizer = TfidfVectorizer(
+            max_features=3000,
+            ngram_range=(1, 2),
+            min_df=1
+        )
+        self.tfidf_matrix = None
+        self.articles_since_refit = 0
+        self.duplicates_rejected = 0
+        self.similar_rejected = 0
+    
+    def _refit_vectorizer(self):
+        """Refit the TF-IDF vectorizer with all current texts."""
+        if len(self.texts) >= MIN_ARTICLES_FOR_SIMILARITY_CHECK:
+            try:
+                self.tfidf_matrix = self.vectorizer.fit_transform(self.texts)
+                self.articles_since_refit = 0
+            except ValueError:
+                # Empty vocabulary, reset
+                self.tfidf_matrix = None
+    
+    def is_duplicate(self, article):
+        """
+        Check if an article is a duplicate or too similar to existing articles.
+        
+        :param article: dict: Article with 'title' and 'content' keys
+        :returns: tuple(bool, str): (is_duplicate, reason)
+        """
+        title = article.get('title', '').strip()
+        content = article.get('content', '').strip()
+        
+        # Check for empty content
+        if not content or len(content) < 50:
+            return True, "empty_or_too_short"
+        
+        # Check for exact title match
+        if title.lower() in self.titles:
+            self.duplicates_rejected += 1
+            return True, "exact_title_match"
+        
+        # Check for exact content match (fast check)
+        if content in self.texts:
+            self.duplicates_rejected += 1
+            return True, "exact_content_match"
+        
+        # Check for high similarity (if there are enough articles)
+        if len(self.texts) >= MIN_ARTICLES_FOR_SIMILARITY_CHECK and self.tfidf_matrix is not None:
+            try:
+                # Transform the new article
+                new_vector = self.vectorizer.transform([content])
+                
+                # Calculate similarity with all existing articles
+                similarities = cosine_similarity(new_vector, self.tfidf_matrix)[0]
+                max_sim = np.max(similarities) if len(similarities) > 0 else 0
+                
+                if max_sim >= self.similarity_threshold:
+                    self.similar_rejected += 1
+                    return True, f"too_similar ({max_sim:.2f})"
+            except Exception:
+                # If similarity check fails, allow the article
+                pass
+        
+        return False, "ok"
+    
+    def add_article(self, article):
+        """
+        Add an article to the detector's cache.
+        
+        :param article: dict: Article with 'title' and 'content' keys
+        """
+        title = article.get('title', '').strip()
+        content = article.get('content', '').strip()
+        
+        if title:
+            self.titles.add(title.lower())
+        if content:
+            self.texts.append(content)
+            self.articles_since_refit += 1
+            
+            # Refit
+            if self.articles_since_refit >= REFIT_VECTORIZER_EVERY:
+                self._refit_vectorizer()
+    
+    def get_stats(self):
+        """
+        Get statistics about duplicate detection.
+        
+        :returns: dict: Statistics dictionary
+        """
+        return {
+            "total_articles": len(self.texts),
+            "duplicates_rejected": self.duplicates_rejected,
+            "similar_rejected": self.similar_rejected,
+            "total_rejected": self.duplicates_rejected + self.similar_rejected
+        }
 
 
 def extract_json_from_response(text):
-    """Extracts a JSON array from the text (Gemma doesn't support JSON mode).
+    """Extracts a JSON array from the text.
 
     :param text: str: Raw response text from Gemma model
     :returns: list[dict] | None: Parsed JSON array or None if parsing fails
@@ -248,9 +382,11 @@ def generate_crime_news(batches, streets, output_dir, categories=None, skip_mult
     :returns: list[dict]: List of generated crime article dictionaries
 
     Generates ~80% single-label and ~20% multi-label crime articles.
+    Uses target-based generation: continues until target is reached.
     """
     dataset = []
     consecutive_errors = 0
+    detector = DuplicateDetector()
     
     # Filter categories if specified
     if categories:
@@ -262,34 +398,45 @@ def generate_crime_news(batches, streets, output_dir, categories=None, skip_mult
     else:
         selected_categories = categorie_crimine
     
-    # Calculate batches: 80% single-label, 20% multi-label
-    single_label_batches = int(batches * 0.8) if not categories else batches
-    multilabel_batches = batches - single_label_batches if not categories else 0
+    # Calculate targets: 80% single-label, 20% multi-label
+    single_label_target_per_cat = int(batches * ROWS_PER_BATCH * 0.8) if not categories else batches * ROWS_PER_BATCH
+    multilabel_target_per_combo = int(batches * ROWS_PER_BATCH * 0.2 / len(combinazioni_multilabel)) if not categories else 0
     
     # Skip multilabel if only generating specific categories or flag is set
     if skip_multilabel or categories:
-        multilabel_batches = 0
+        multilabel_target_per_combo = 0
+    
+    total_single_target = single_label_target_per_cat * len(selected_categories)
+    total_multi_target = multilabel_target_per_combo * len(combinazioni_multilabel) if multilabel_target_per_combo > 0 else 0
+    total_target = total_single_target + total_multi_target
     
     print("\n--- GENERATING CRIME NEWS ---")
     if categories:
         print(f"Selected categories: {list(selected_categories.keys())}")
-    print(f"Batches per category (single-label): {single_label_batches if not categories else batches}")
-    if multilabel_batches > 0:
-        print(f"Batches for multi-label: {multilabel_batches * len(combinazioni_multilabel)}")
+    print(f"Target per category (single-label): {single_label_target_per_cat}")
+    if multilabel_target_per_combo > 0:
+        print(f"Target per multi-label combo: {multilabel_target_per_combo}")
     print(f"Categories: {len(selected_categories)}")
-    expected_single = (single_label_batches if not categories else batches) * len(selected_categories) * ROWS_PER_BATCH
-    expected_multi = multilabel_batches * len(combinazioni_multilabel) * ROWS_PER_BATCH if multilabel_batches > 0 else 0
-    print(f"Expected articles: ~{expected_single} single-label" + (f" + ~{expected_multi} multi-label" if expected_multi > 0 else "") + f" = ~{expected_single + expected_multi} total")
+    print(f"TOTAL TARGET: {total_target} articles ({total_single_target} single-label + {total_multi_target} multi-label)")
     
     # --- Single-label articles ---
     print("\n[PHASE 1] Generating single-label articles...")
     for cat, desc in selected_categories.items():
-        print(f"\nGenerating: {cat}...")
-        batch_count = batches if categories else single_label_batches
-        for i in range(batch_count):
-            if i % 10 == 0:
-                print(f"  Batch {i}/{single_label_batches} ({len(dataset)} articles so far)")
+        cat_articles = []
+        target = single_label_target_per_cat
+        max_attempts = target * MAX_RETRIES_MULTIPLIER
+        attempts = 0
+        
+        print(f"\nGenerating: {cat} (target: {target} articles)...")
+        
+        while len(cat_articles) < target and attempts < max_attempts and consecutive_errors < MAX_CONSECUTIVE_ERRORS:
+            attempts += 1
             
+            if attempts % 10 == 0:
+                stats = detector.get_stats()
+                print(f"  Progress: {len(cat_articles)}/{target} | Attempts: {attempts} | Rejected: {stats['total_rejected']}")
+            
+            # Random location
             if random.random() < 0.2:
                 via_scelta = random.choice(streets)
                 istruzioni_luogo = f"Ambientazione: Cita esplicitamente '{via_scelta}'."
@@ -297,17 +444,26 @@ def generate_crime_news(batches, streets, output_dir, categories=None, skip_mult
                 istruzioni_luogo = "Ambientazione: Generica (es. 'in centro', 'quartiere periferico', 'zona industriale'). NON citare vie specifiche."
 
             stile = random.choice(stili_giornalistici)
+            momento = random.choice(momenti_giornata)
+            
+            # Add unique identifier to prompt for variety
+            unique_seed = f"[SEED:{random.randint(10000, 99999)}]"
             
             prompt = f"""
-            Scrivi {ROWS_PER_BATCH} articoli di giornale locale di Bari in stile REALISTICO.
+            {unique_seed}
+            Scrivi {ROWS_PER_BATCH} articoli di giornale locale di Bari COMPLETAMENTE DIVERSI tra loro.
             L'articolo deve riportare un fatto che rientra in questa tipologia: {desc}.
             
-            REGOLE IMPORTANTI PER REALISMO:
+            REGOLE IMPORTANTI PER REALISMO E VARIETÀ:
             - {stile}
+            - Il fatto è avvenuto {momento}
+            - OGNI articolo deve avere: protagonisti diversi, luoghi diversi, circostanze diverse
+            - NON ripetere strutture o frasi simili tra gli articoli
             - NON tutti gli articoli devono menzionare esplicitamente il crimine nel titolo
             - Alcuni articoli possono riportare il fatto in modo indiretto o accennato
             - Usa terminologia giornalistica italiana autentica
-            - Varia la lunghezza: alcuni brevi (2-3 frasi), altri più dettagliati
+            - Varia la lunghezza: alcuni brevi (2-3 frasi), altri più dettagliati (5-8 frasi)
+            - Inventa nomi, cognomi ed età diversi per ogni articolo
             {istruzioni_luogo}
             
             IMPORTANTE: Rispondi SOLO con un array JSON valido, senza altro testo.
@@ -319,36 +475,56 @@ def generate_crime_news(batches, streets, output_dir, categories=None, skip_mult
                 data = extract_json_from_response(res.text)
                 if data:
                     for x in data:
+                        if len(cat_articles) >= target:
+                            break
+                            
                         x['date'] = genera_data_recente()
                         x['link'] = genera_fake_link(x.get('title', ''))
                         x['labels'] = [cat]  # Force single label
-                        dataset.append(x)
+                        
+                        # Check for duplicates
+                        is_dup, reason = detector.is_duplicate(x)
+                        if not is_dup:
+                            cat_articles.append(x)
+                            dataset.append(x)
+                            detector.add_article(x)
+                        else:
+                            if "too_similar" in reason:
+                                print(f"    Rejected: {x.get('title', '')[:50]}...")
                     consecutive_errors = 0
                 else:
-                    print(f"    ⚠️ Invalid JSON for {cat} batch {i}")
+                    print(f"    Invalid JSON")
                     consecutive_errors += 1
                 time.sleep(5)
             except Exception as e:
-                print(f"    Err {cat} batch {i}: {e}")
+                print(f"    Err: {e}")
                 consecutive_errors += 1
                 time.sleep(10)
-            
-            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                print(f"❌ Too many consecutive errors ({MAX_CONSECUTIVE_ERRORS}), saving and stopping...")
-                break
+        
+        print(f"  {cat}: {len(cat_articles)}/{target} articles generated")
         
         if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+            print(f"Too many consecutive errors ({MAX_CONSECUTIVE_ERRORS}), stopping...")
             break
     
     # --- Multi-label articles ---
-    if consecutive_errors < MAX_CONSECUTIVE_ERRORS:
+    if consecutive_errors < MAX_CONSECUTIVE_ERRORS and multilabel_target_per_combo > 0:
         print("\n[PHASE 2] Generating multi-label articles...")
         for labels, desc in combinazioni_multilabel:
+            combo_articles = []
+            target = multilabel_target_per_combo
+            max_attempts = target * MAX_RETRIES_MULTIPLIER
+            attempts = 0
             labels_str = ', '.join(labels)
-            print(f"\nGenerating: {labels_str}...")
-            for i in range(multilabel_batches):
-                if i % 5 == 0:
-                    print(f"  Batch {i}/{multilabel_batches} ({len(dataset)} articles so far)")
+            
+            print(f"\nGenerating: {labels_str} (target: {target} articles)...")
+            
+            while len(combo_articles) < target and attempts < max_attempts and consecutive_errors < MAX_CONSECUTIVE_ERRORS:
+                attempts += 1
+                
+                if attempts % 5 == 0:
+                    stats = detector.get_stats()
+                    print(f"  Progress: {len(combo_articles)}/{target} | Attempts: {attempts} | Rejected: {stats['total_rejected']}")
                 
                 if random.random() < 0.2:
                     via_scelta = random.choice(streets)
@@ -357,19 +533,26 @@ def generate_crime_news(batches, streets, output_dir, categories=None, skip_mult
                     istruzioni_luogo = "Ambientazione: Generica (es. 'in centro', 'quartiere periferico', 'zona industriale'). NON citare vie specifiche."
 
                 stile = random.choice(stili_giornalistici)
+                momento = random.choice(momenti_giornata)
                 labels_json = json.dumps(labels)
+                unique_seed = f"[SEED:{random.randint(10000, 99999)}]"
                 
                 prompt = f"""
-                Scrivi {ROWS_PER_BATCH} articoli di giornale locale di Bari in stile REALISTICO.
+                {unique_seed}
+                Scrivi {ROWS_PER_BATCH} articoli di giornale locale di Bari COMPLETAMENTE DIVERSI tra loro.
                 L'articolo deve riportare un fatto che coinvolge PIÙ TIPOLOGIE DI REATO contemporaneamente:
                 {desc}
                 
-                REGOLE IMPORTANTI PER REALISMO:
+                REGOLE IMPORTANTI PER REALISMO E VARIETÀ:
                 - {stile}
+                - Il fatto è avvenuto {momento}
+                - OGNI articolo deve avere: protagonisti diversi, luoghi diversi, circostanze diverse
                 - L'articolo deve descrivere una situazione dove sono presenti ENTRAMBI i reati
+                - NON ripetere strutture o frasi simili tra gli articoli
                 - NON tutti gli articoli devono menzionare esplicitamente i crimini nel titolo
                 - Usa terminologia giornalistica italiana autentica
-                - Varia la lunghezza: alcuni brevi (2-3 frasi), altri più dettagliati
+                - Varia la lunghezza
+                - Inventa nomi, cognomi ed età diversi per ogni articolo
                 {istruzioni_luogo}
                 
                 IMPORTANTE: Rispondi SOLO con un array JSON valido, senza altro testo.
@@ -381,26 +564,45 @@ def generate_crime_news(batches, streets, output_dir, categories=None, skip_mult
                     data = extract_json_from_response(res.text)
                     if data:
                         for x in data:
+                            if len(combo_articles) >= target:
+                                break
+                                
                             x['date'] = genera_data_recente()
                             x['link'] = genera_fake_link(x.get('title', ''))
                             x['labels'] = labels  # Use the multi-label combination
-                            dataset.append(x)
+                            
+                            # Check for duplicates
+                            is_dup, reason = detector.is_duplicate(x)
+                            if not is_dup:
+                                combo_articles.append(x)
+                                dataset.append(x)
+                                detector.add_article(x)
+                            else:
+                                if "too_similar" in reason:
+                                    print(f"    Rejected: {x.get('title', '')[:50]}...")
                         consecutive_errors = 0
                     else:
-                        print(f"    ⚠️ Invalid JSON for {labels_str} batch {i}")
+                        print(f"    Invalid JSON")
                         consecutive_errors += 1
                     time.sleep(5)
                 except Exception as e:
-                    print(f"    Err {labels_str} batch {i}: {e}")
+                    print(f"    Err: {e}")
                     consecutive_errors += 1
                     time.sleep(10)
-                
-                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                    print(f"❌ Too many consecutive errors ({MAX_CONSECUTIVE_ERRORS}), saving and stopping...")
-                    break
+            
+            print(f"  {labels_str}: {len(combo_articles)}/{target} articles generated")
             
             if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                print(f"Too many consecutive errors ({MAX_CONSECUTIVE_ERRORS}), stopping...")
                 break
+    
+    # Print deduplication stats
+    stats = detector.get_stats()
+    print(f"\nDeduplication stats:")
+    print(f"   - Exact duplicates rejected: {stats['duplicates_rejected']}")
+    print(f"   - Similar articles rejected: {stats['similar_rejected']}")
+    print(f"   - Total rejected: {stats['total_rejected']}")
+    print(f"   - Final dataset size: {len(dataset)}/{total_target}")
     
     save_dataset(dataset, output_dir, "dataset_crime.json")
     return dataset
@@ -414,14 +616,21 @@ def generate_non_crime_news(batches, streets, output_dir):
     :param output_dir: Path: Directory where the output file will be saved
     :returns: list[dict]: List of generated non-crime article dictionaries
 
+    Uses target-based generation: continues until target is reached.
     """
     dataset = []
     consecutive_errors = 0
-    print("\n--- GENERATING NON-CRIME NEWS ---")
-    print(f"Batches: {batches}")
-    print(f"Expected articles: ~{batches * ROWS_PER_BATCH}")
+    detector = DuplicateDetector()
     
-    for i in range(batches):
+    target = batches * ROWS_PER_BATCH
+    max_attempts = target * MAX_RETRIES_MULTIPLIER
+    attempts = 0
+    
+    print("\n--- GENERATING NON-CRIME NEWS ---")
+    print(f"TARGET: {target} articles")
+    
+    while len(dataset) < target and attempts < max_attempts and consecutive_errors < MAX_CONSECUTIVE_ERRORS:
+        attempts += 1
         topic = random.choices(lista_topics, weights=lista_pesi, k=1)[0]
         
         if random.random() < 0.2:
@@ -430,20 +639,28 @@ def generate_non_crime_news(batches, streets, output_dir):
         else:
             istruzioni_luogo = "Non citare vie specifiche. Usa riferimenti generici (es. 'sul lungomare', 'in ateneo', 'negli uffici comunali', 'in piazza')."
 
-        if i % 50 == 0: 
-            print(f"  Batch {i}/{batches} (Topic: {topic[:30]}...) - {len(dataset)} articles")
+        if attempts % 50 == 0:
+            stats = detector.get_stats()
+            print(f"  Progress: {len(dataset)}/{target} | Attempts: {attempts} | Topic: {topic[:30]}... | Rejected: {stats['total_rejected']}")
 
         stile = random.choice(stili_giornalistici)
+        momento = random.choice(momenti_giornata)
+        unique_seed = f"[SEED:{random.randint(10000, 99999)}]"
         
         prompt = f"""
-        Scrivi {ROWS_PER_BATCH} articoli di giornale locale di Bari in stile REALISTICO.
+        {unique_seed}
+        Scrivi {ROWS_PER_BATCH} articoli di giornale locale di Bari COMPLETAMENTE DIVERSI tra loro.
         Argomento principale: {topic}.
         
-        REGOLE IMPORTANTI PER REALISMO:
+        REGOLE IMPORTANTI PER REALISMO E VARIETÀ:
         - {stile}
+        - Il fatto è avvenuto {momento}
+        - OGNI articolo deve avere: protagonisti diversi, luoghi diversi, circostanze diverse
         - Gli articoli devono sembrare autentici articoli di cronaca locale
         - Possono menzionare fatti di attualità, ma NON reati o crimini
+        - NON ripetere strutture o frasi simili tra gli articoli
         - Varia la lunghezza e il tono
+        - Inventa nomi, date e dettagli specifici diversi per ogni articolo
         {istruzioni_luogo}
         
         IMPORTANTE: Rispondi SOLO con un array JSON valido, senza altro testo prima o dopo.
@@ -455,23 +672,38 @@ def generate_non_crime_news(batches, streets, output_dir):
             data = extract_json_from_response(res.text)
             if data:
                 for x in data:
+                    if len(dataset) >= target:
+                        break
+                        
                     x['date'] = genera_data_recente()
                     x['link'] = genera_fake_link(x.get('title', ''))
                     x['labels'] = []
-                    dataset.append(x)
+                    
+                    # Check for duplicates
+                    is_dup, reason = detector.is_duplicate(x)
+                    if not is_dup:
+                        dataset.append(x)
+                        detector.add_article(x)
+                    else:
+                        if "too_similar" in reason:
+                            print(f"    Rejected: {x.get('title', '')[:50]}...")
                 consecutive_errors = 0
             else:
-                print(f"    ⚠️ Invalid JSON for batch {i}")
+                print(f"    Invalid JSON")
                 consecutive_errors += 1
             time.sleep(5) 
         except Exception as e:
-            print(f"    Err batch {i}: {e}")
+            print(f"    Err: {e}")
             consecutive_errors += 1
             time.sleep(10)
-        
-        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-            print(f"❌ Too many consecutive errors ({MAX_CONSECUTIVE_ERRORS}), saving and stopping...")
-            break
+    
+    # Print deduplication stats
+    stats = detector.get_stats()
+    print(f"\nDeduplication stats:")
+    print(f"   - Exact duplicates rejected: {stats['duplicates_rejected']}")
+    print(f"   - Similar articles rejected: {stats['similar_rejected']}")
+    print(f"   - Total rejected: {stats['total_rejected']}")
+    print(f"   - Final dataset size: {len(dataset)}/{target}")
 
     save_dataset(dataset, output_dir, "dataset_non_crime.json")
     return dataset
@@ -484,28 +716,45 @@ def generate_ambiguous_news(batches, output_dir):
     :param output_dir: Path: Directory where the output file will be saved
     :returns: list[dict]: List of generated ambiguous article dictionaries
 
+    Uses target-based generation: continues until target is reached.
     """
     dataset = []
     consecutive_errors = 0
-    print("\n--- GENERATING AMBIGUOUS NEWS ---")
-    print(f"Batches: {batches}")
-    print(f"Expected articles: ~{batches * ROWS_PER_BATCH}")
+    detector = DuplicateDetector()
     
-    for i in range(batches):
+    target = batches * ROWS_PER_BATCH
+    max_attempts = target * MAX_RETRIES_MULTIPLIER
+    attempts = 0
+    
+    print("\n--- GENERATING AMBIGUOUS NEWS ---")
+    print(f"TARGET: {target} articles")
+    
+    while len(dataset) < target and attempts < max_attempts and consecutive_errors < MAX_CONSECUTIVE_ERRORS:
+        attempts += 1
         caso = random.choice(casi_ambigui)
         stile = random.choice(stili_giornalistici)
+        momento = random.choice(momenti_giornata)
+        unique_seed = f"[SEED:{random.randint(10000, 99999)}]"
         
-        if i % 10 == 0:
-            print(f"  Batch {i}/{batches} - {len(dataset)} articles")
+        if attempts % 10 == 0:
+            stats = detector.get_stats()
+            print(f"  Progress: {len(dataset)}/{target} | Attempts: {attempts} | Rejected: {stats['total_rejected']}")
         
         prompt = f"""
-        Scrivi {ROWS_PER_BATCH} articoli di giornale locale di Bari.
+        {unique_seed}
+        Scrivi {ROWS_PER_BATCH} articoli di giornale locale di Bari COMPLETAMENTE DIVERSI tra loro.
         L'articolo deve descrivere una situazione che SEMBRA un crimine ma NON lo è:
         Esempio: {caso}
         
         IMPORTANTE: L'articolo deve essere ambiguo - un lettore potrebbe inizialmente
         pensare che sia un crimine, ma leggendo si capisce che non lo è.
-        {stile}
+        
+        REGOLE PER VARIETÀ:
+        - {stile}
+        - Il fatto è avvenuto {momento}
+        - OGNI articolo deve avere: protagonisti diversi, luoghi diversi, circostanze diverse
+        - NON ripetere strutture o frasi simili tra gli articoli
+        - Inventa nomi, date e dettagli specifici diversi per ogni articolo
         
         IMPORTANTE: Rispondi SOLO con un array JSON valido, senza altro testo prima o dopo.
         Schema JSON: [{{"title": "...", "content": "...", "labels": []}}]
@@ -516,23 +765,38 @@ def generate_ambiguous_news(batches, output_dir):
             data = extract_json_from_response(res.text)
             if data:
                 for x in data:
+                    if len(dataset) >= target:
+                        break
+                        
                     x['date'] = genera_data_recente()
                     x['link'] = genera_fake_link(x.get('title', ''))
                     x['labels'] = []
-                    dataset.append(x)
+                    
+                    # Check for duplicates
+                    is_dup, reason = detector.is_duplicate(x)
+                    if not is_dup:
+                        dataset.append(x)
+                        detector.add_article(x)
+                    else:
+                        if "too_similar" in reason:
+                            print(f"    Rejected: {x.get('title', '')[:50]}...")
                 consecutive_errors = 0
             else:
-                print(f"    ⚠️ Invalid JSON for batch {i}")
+                print(f"    Invalid JSON")
                 consecutive_errors += 1
             time.sleep(5)
         except Exception as e:
-            print(f"    Err batch {i}: {e}")
+            print(f"    Err: {e}")
             consecutive_errors += 1
             time.sleep(10)
-        
-        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-            print(f"❌ Too many consecutive errors ({MAX_CONSECUTIVE_ERRORS}), saving and stopping...")
-            break
+    
+    # Print deduplication stats
+    stats = detector.get_stats()
+    print(f"\nDeduplication stats:")
+    print(f"   - Exact duplicates rejected: {stats['duplicates_rejected']}")
+    print(f"   - Similar articles rejected: {stats['similar_rejected']}")
+    print(f"   - Total rejected: {stats['total_rejected']}")
+    print(f"   - Final dataset size: {len(dataset)}/{target}")
 
     save_dataset(dataset, output_dir, "dataset_ambiguous.json")
     return dataset
@@ -558,6 +822,8 @@ def generate(args):
     print(f"Type: {args.type}")
     print(f"Output directory: {output_dir}")
     print(f"Model: {MODEL_NAME}")
+    print(f"Similarity threshold: {SIMILARITY_THRESHOLD}")
+    print(f"Max retries multiplier: {MAX_RETRIES_MULTIPLIER}x")
     print("="*60)
     
     # Track generated datasets
