@@ -18,7 +18,6 @@ scraper/news
 scraper/scraper_baritoday.py
 scraper/scraper_repubblica.py
 scraper/scraper_telebari.py
-
 scraper/compare_deduplication.py
 scraper/comparison_results.json
 scraper/deduplicate_clustering.py
@@ -30,3 +29,4 @@ datasets/test_set.json
 
 # Other
 docs
+check_similarity.py

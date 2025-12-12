@@ -152,7 +152,7 @@ lista_pesi = list(argomenti_pesati.values())
 
 # --- DEFAULTS ---
 ROWS_PER_BATCH = 5
-DEFAULT_BATCHES_CRIME = 60       # Per category (13 categories) = ~3900 articles
+DEFAULT_BATCHES_CRIME = 75       # Per category: 75 * 5 * 0.8 = 300 single-label per category
 DEFAULT_BATCHES_NON_CRIME = 700  # = ~3500 articles
 DEFAULT_BATCHES_AMBIGUOUS = 35   # = ~175 articles
 MAX_CONSECUTIVE_ERRORS = 10
