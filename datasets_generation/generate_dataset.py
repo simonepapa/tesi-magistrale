@@ -136,7 +136,7 @@ lista_pesi = list(argomenti_pesati.values())
 # --- DEFAULTS ---
 ROWS_PER_BATCH = 5
 DEFAULT_BATCHES_CRIME = 60       # Per category (13 categories) = ~3900 articles
-DEFAULT_BATCHES_NON_CRIME = 700  # = ~3500 articles
+DEFAULT_BATCHES_NON_CRIME = 1560  # = ~7800 articles
 DEFAULT_BATCHES_AMBIGUOUS = 35   # = ~175 articles
 
 
@@ -144,7 +144,7 @@ def load_streets():
     """Load street names from Excel file."""
     print("Loading streets file...")
     try:
-        df_vie = pd.read_excel("stradario_bari.xlsx")
+        df_vie = pd.read_excel("../stradario_bari.xlsx")
         df_vie['NOME_COMPLETO'] = df_vie.iloc[:, 2].astype(str).str.strip() + " " + df_vie.iloc[:, 3].astype(str).str.strip()
         streets = [v for v in df_vie['NOME_COMPLETO'].tolist() if len(v) > 4 and "nan" not in v.lower()]
         print(f"  Loaded {len(streets)} streets")
@@ -236,23 +236,29 @@ def generate_crime_news(batches, streets, output_dir, categories=None, skip_mult
     else:
         selected_categories = categorie_crimine
     
-    # Calculate batches: 80% single-label, 20% multi-label
+    # Calculate targets:
+    # - Single-label: 80% of batches per category
+    # - Multi-label: 20% of total single-label articles
     single_label_batches = int(batches * 0.8) if not categories else batches
-    multilabel_batches = batches - single_label_batches if not categories else 0
+    total_single_target = single_label_batches * len(selected_categories if not categories else categorie_crimine) * ROWS_PER_BATCH
     
-    # Skip multilabel if only generating specific categories or flag is set
+    multilabel_total_target = int(total_single_target * 0.2) if not categories else 0  # 20% of single-label
+    multilabel_batches_per_combo = int(multilabel_total_target / (len(combinazioni_multilabel) * ROWS_PER_BATCH)) if multilabel_total_target > 0 else 0
+    
+    # Skip multilabel if flag is set
     if skip_multilabel or categories:
-        multilabel_batches = 0
+        multilabel_batches_per_combo = 0
     
     print("\n--- GENERATING CRIME NEWS ---")
     if categories:
         print(f"Selected categories: {list(selected_categories.keys())}")
     print(f"Batches per category (single-label): {single_label_batches if not categories else batches}")
-    if multilabel_batches > 0:
-        print(f"Batches for multi-label: {multilabel_batches * len(combinazioni_multilabel)}")
+    if multilabel_batches_per_combo > 0:
+        print(f"Batches per multi-label combo: {multilabel_batches_per_combo}")
+        print(f"Total multi-label batches: {multilabel_batches_per_combo * len(combinazioni_multilabel)}")
     print(f"Categories: {len(selected_categories)}")
     expected_single = (single_label_batches if not categories else batches) * len(selected_categories) * ROWS_PER_BATCH
-    expected_multi = multilabel_batches * len(combinazioni_multilabel) * ROWS_PER_BATCH if multilabel_batches > 0 else 0
+    expected_multi = multilabel_batches_per_combo * len(combinazioni_multilabel) * ROWS_PER_BATCH if multilabel_batches_per_combo > 0 else 0
     print(f"Expected articles: ~{expected_single} single-label" + (f" + ~{expected_multi} multi-label" if expected_multi > 0 else "") + f" = ~{expected_single + expected_multi} total")
     
     # --- Single-label articles ---
@@ -306,9 +312,9 @@ def generate_crime_news(batches, streets, output_dir, categories=None, skip_mult
     for labels, desc in combinazioni_multilabel:
         labels_str = ', '.join(labels)
         print(f"\nGenerating: {labels_str}...")
-        for i in range(multilabel_batches):
+        for i in range(multilabel_batches_per_combo):
             if i % 5 == 0:
-                print(f"  Batch {i}/{multilabel_batches} ({len(dataset)} articles so far)")
+                print(f"  Batch {i}/{multilabel_batches_per_combo} ({len(dataset)} articles so far)")
             
             if random.random() < 0.2:
                 via_scelta = random.choice(streets)
@@ -475,7 +481,7 @@ def generate(args):
     
     # Print configuration
     print("\n" + "="*60)
-    print("DATASET GENERATOR - GEMINI FLASH LITE")
+    print("DATASET GENERATOR - GEMINI")
     print("="*60)
     print(f"Type: {args.type}")
     print(f"Output directory: {output_dir}")

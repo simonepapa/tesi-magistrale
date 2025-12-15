@@ -35,37 +35,102 @@ from tqdm import tqdm
 
 from config import LABELS, get_model_config, get_available_models
 from inference import load_model, predict_with_chunking
+def find_checkpoint(model_name: str, dataset_name: str = None) -> str:
+    """Find the checkpoint path for a model.
+    
+    :param model_name: str: model name
+    :param dataset_name: str: dataset name used for training (optional)
+    :returns: str: checkpoint path
+    """
+    if dataset_name:
+        # Check standard results structure: results/{model}/{dataset}/model
+        potential_path = os.path.join("results", model_name, dataset_name, "model")
+        if os.path.exists(potential_path):
+            return potential_path
+            
+    # If no specific dataset or not found, check if there's any folder in results/{model}
+    results_base = os.path.join("results", model_name)
+    if os.path.exists(results_base):
+        subdirs = [d for d in os.listdir(results_base) if os.path.isdir(os.path.join(results_base, d))]
+        if subdirs:
+            # Pick the first one (most likely the one we want if only one exists)
+            potential_path = os.path.join(results_base, subdirs[0], "model")
+            if os.path.exists(potential_path):
+                return potential_path
+
+    # Fallback to config default
+    return None
 
 
-def load_test_data(dataset_path: str = "dataset.json", test_size: float = 0.1):
+def convert_labels_format(df):
+    """Convert labels from array format to one-hot encoded columns (borrowed from train.py)"""
+    if 'labels' in df.columns:
+        # Initialize all label columns with 0
+        for label in LABELS:
+            df[label] = 0
+        
+        # Convert labels array to one-hot columns
+        for idx, row in df.iterrows():
+            labels_list = row.get('labels', [])
+            if isinstance(labels_list, list):
+                for label in labels_list:
+                    if label in LABELS:
+                        df.at[idx, label] = 1
+        
+        # Drop the original labels column
+        df = df.drop(columns=['labels'])
+    return df
+
+
+def load_test_data(dataset_path: str = None, test_file: str = None, test_size: float = 0.1):
     """Load test portion of the dataset.
 
-    :param dataset_path: str: path to the dataset (Default value = "dataset.json")
+    :param dataset_path: str: path to the full dataset (for splitting)
+    :param test_file: str: path to separate test file (optional)
     :param test_size: float: size of the test set (Default value = 0.1)
 
     """
-    df = pd.read_json(dataset_path)
-    df = df.sample(frac=1.0, random_state=42)  # Shuffle with same seed as training
+    if test_file and os.path.exists(test_file):
+        print(f"Loading test set from file: {test_file}")
+        df_test = pd.read_json(test_file)
+        
+    elif dataset_path and os.path.exists(dataset_path):
+        print(f"Loading test set from split of: {dataset_path}")
+        df = pd.read_json(dataset_path)
+        df_test = convert_labels_format(df) # Convert full dataset first if needed
+        df = df.sample(frac=1.0, random_state=42)  # Shuffle with same seed as training
+        
+        # Same split as training to get the exact test set
+        df_trainval, df_test = train_test_split(
+            df, test_size=test_size, random_state=42, shuffle=True
+        )
+    else:
+        raise ValueError("Either dataset_path or test_file must be provided and exist")
+        
+    # Ensure labels format
+    df_test = convert_labels_format(df_test)
     
-    # Same split as training to get the exact test set
-    df_trainval, df_test = train_test_split(
-        df, test_size=test_size, random_state=42, shuffle=True
-    )
+    # Ensure content column
+    if 'contenuto' in df_test.columns and 'content' not in df_test.columns:
+        df_test['content'] = df_test['contenuto']
     
     return df_test
 
 
-def evaluate_single_model(model_name: str, test_df: pd.DataFrame) -> Tuple[Dict, np.ndarray, np.ndarray]:
+def evaluate_single_model(model_name: str, test_df: pd.DataFrame, dataset_name: str = None) -> Tuple[Dict, np.ndarray, np.ndarray]:
     """Evaluate a single model on the test set.
 
     :param model_name: str: name of the model to evaluate
     :param test_df: pd.DataFrame: test set
+    :param dataset_name: str: dataset name used for training (optional)
 
     """
     config = get_model_config(model_name)
-    print(f"\nEvaluating {config['name']}...")
+    checkpoint = find_checkpoint(model_name, dataset_name)
+    display_name = f"{config['name']} ({'custom' if checkpoint else 'default'})"
+    print(f"\nEvaluating {display_name}...")
     
-    model, tokenizer, device, _ = load_model(model_name)
+    model, tokenizer, device, _ = load_model(model_name, checkpoint)
     
     all_preds = []
     all_probs = []
@@ -159,10 +224,11 @@ def compare_predictions(predictions: Dict[str, Dict], content: str, title: str =
     return comparison
 
 
-def run_quick_comparison(models_to_compare: List[str]):
+def run_quick_comparison(models_to_compare: List[str], dataset_name: str = None):
     """Quick side-by-side comparison on a single example.
 
     :param models_to_compare: List[str]: models to compare
+    :param dataset_name: str: dataset name used for training (optional)
 
     """
     print("\n" + "="*60)
@@ -188,8 +254,9 @@ def run_quick_comparison(models_to_compare: List[str]):
     
     for model_name in models_to_compare:
         config = get_model_config(model_name)
-        print(f"\nLoading {config['name']}...")
-        model, tokenizer, device, _ = load_model(model_name)
+        checkpoint = find_checkpoint(model_name, dataset_name)
+        print(f"\nLoading {config['name']} from {checkpoint or 'default'}...")
+        model, tokenizer, device, _ = load_model(model_name, checkpoint)
         
         preds, chunks = predict_with_chunking(model, tokenizer, test_text, device)
         all_preds[config['name']] = preds
@@ -224,11 +291,15 @@ def run_quick_comparison(models_to_compare: List[str]):
     print(f"\nChunks used: " + ", ".join([f"{m}={all_chunks[m]}" for m in model_names]))
 
 
-def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10):
+def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10, 
+                          dataset_path: str = None, test_file: str = None, dataset_name: str = None):
     """Compare models on a sample of articles.
 
     :param models_to_compare: List[str]: models to compare
     :param num_samples: int: number of samples to compare (Default value = 10)
+    :param dataset_path: str: path to the full dataset (optional)
+    :param test_file: str: path to separate test file (optional)
+    :param dataset_name: str: dataset name used for training (optional)
 
     """
     print("\n" + "="*60)
@@ -236,15 +307,16 @@ def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10):
     print("="*60)
     
     # Load test data
-    test_df = load_test_data()
+    test_df = load_test_data(dataset_path, test_file)
     samples = test_df.sample(n=min(num_samples, len(test_df)), random_state=42)
     
     # Load all models
     loaded_models = {}
     for model_name in models_to_compare:
         config = get_model_config(model_name)
-        print(f"\nLoading {config['name']}...")
-        model, tokenizer, device, _ = load_model(model_name)
+        checkpoint = find_checkpoint(model_name, dataset_name)
+        print(f"\nLoading {config['name']} from {checkpoint or 'default'}...")
+        model, tokenizer, device, _ = load_model(model_name, checkpoint)
         loaded_models[model_name] = (model, tokenizer, device, config['name'])
     
     # Compare on samples
@@ -282,10 +354,14 @@ def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10):
         torch.cuda.empty_cache()
 
 
-def run_full_evaluation(models_to_compare: List[str]):
+def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None, 
+                        test_file: str = None, dataset_name: str = None):
     """Run full evaluation on test set for all specified models.
 
     :param models_to_compare: List[str]: models to compare
+    :param dataset_path: str: path to the full dataset (optional)
+    :param test_file: str: separate test file path (optional)
+    :param dataset_name: str: dataset name used for training (optional)
 
     """
     print("\n" + "="*60)
@@ -294,7 +370,7 @@ def run_full_evaluation(models_to_compare: List[str]):
     
     # Load test data
     print("\nLoading test data...")
-    test_df = load_test_data()
+    test_df = load_test_data(dataset_path, test_file)
     print(f"Test set size: {len(test_df)} articles")
     
     # Evaluate each model
@@ -302,7 +378,7 @@ def run_full_evaluation(models_to_compare: List[str]):
     all_preds = {}
     
     for model_name in models_to_compare:
-        metrics, preds, probs = evaluate_single_model(model_name, test_df)
+        metrics, preds, probs = evaluate_single_model(model_name, test_df, dataset_name)
         config = get_model_config(model_name)
         all_metrics[config['name']] = metrics
         all_preds[config['name']] = preds
@@ -412,8 +488,22 @@ def main():
                         help="Comma-separated list of models to compare (default: all)")
     parser.add_argument("--samples", type=int, default=10,
                         help="Number of samples for sample mode (default: 10)")
+    parser.add_argument('--dataset', '-d', type=str, default=None,
+                        help='Path to a single dataset JSON file')
+    parser.add_argument('--test_file', type=str, default=None,
+                        help='Path to a separate test set JSON file (optional)')
+    parser.add_argument('--dataset_models', type=str, default=None,
+                        help='Name of the dataset used for training (e.g. gemma-3-27b-it) to locate models in results/')
     
     args = parser.parse_args()
+    
+    # Validate dataset arguments
+    if not args.dataset and not args.test_file and args.mode in ['evaluate', 'full', 'sample']:
+        # Default behavior: try dataset.json if exists
+        if os.path.exists("dataset.json"):
+            args.dataset = "dataset.json"
+        elif os.path.exists("../datasets/test_set.json") and not args.dataset:
+             args.test_file = "../datasets/test_set.json"
     
     # Parse models
     if args.models:
@@ -428,17 +518,15 @@ def main():
         models_to_compare = get_available_models()
     
     print(f"Comparing models: {models_to_compare}")
+    if args.dataset_models:
+        print(f"Using models trained on: {args.dataset_models}")
     
     if args.mode == "quick":
-        run_quick_comparison(models_to_compare)
+        run_quick_comparison(models_to_compare, args.dataset_models)
     elif args.mode == "sample":
-        run_sample_comparison(models_to_compare, args.samples)
-    elif args.mode == "evaluate":
-        run_full_evaluation(models_to_compare)
-    elif args.mode == "full":
-        run_quick_comparison(models_to_compare)
-        run_sample_comparison(models_to_compare, args.samples)
-        run_full_evaluation(models_to_compare)
+        run_sample_comparison(models_to_compare, args.samples, args.dataset, args.test_file, args.dataset_models)
+    elif args.mode == "evaluate" or args.mode == "full":
+        run_full_evaluation(models_to_compare, args.dataset, args.test_file, args.dataset_models)
 
 
 if __name__ == "__main__":

@@ -185,7 +185,8 @@ def label_articles_from_file(input_file: str, output_file: str,
                              model_name: str = 'bert',
                              quartiere: str = None,
                              aggregation: str = 'max',
-                             verbose: bool = True):
+                             verbose: bool = True,
+                             checkpoint: str = None):
     """Label all articles in a JSON file using the specified model.
 
     :param input_file: str: Path to input JSON file
@@ -194,9 +195,10 @@ def label_articles_from_file(input_file: str, output_file: str,
     :param quartiere: str: Optional quartiere name to add to articles (Default value = None)
     :param aggregation: str: Chunk aggregation method (Default value = 'max')
     :param verbose: bool: Print progress (Default value = True)
+    :param checkpoint: str: Custom checkpoint path (Default value = None)
 
     """
-    model, tokenizer, device, config = load_model(model_name)
+    model, tokenizer, device, config = load_model(model_name, checkpoint)
     
     with open(input_file, 'r', encoding='utf-8') as f:
         articles = json.load(f)
@@ -230,17 +232,18 @@ def label_articles_from_file(input_file: str, output_file: str,
         print(f"  - Average chunks per article: {total_chunks/len(articles):.2f}")
 
 
-def run_test(model_name: str = 'bert'):
+def run_test(model_name: str = 'bert', checkpoint: str = None):
     """Run a test prediction with sample text.
 
     :param model_name: str: Model name (Default value = 'bert')
+    :param checkpoint: str: Custom checkpoint path (Default value = None)
 
     """
     print("="*60)
     print(f"Testing {model_name.upper()} Crime Classification with Chunking")
     print("="*60)
     
-    model, tokenizer, device, config = load_model(model_name)
+    model, tokenizer, device, config = load_model(model_name, checkpoint)
     
     test_text = """
     Un grave episodio di cronaca si è verificato ieri sera nel quartiere Libertà di Bari.
@@ -274,6 +277,8 @@ def main():
     parser.add_argument('--model', '-m', type=str, default='bert',
                         choices=get_available_models(),
                         help='Model to use (default: bert)')
+    parser.add_argument('--checkpoint', '-c', type=str, default=None,
+                        help='Custom checkpoint path (e.g., results/bert/gemma-3-27b-it/model)')
     parser.add_argument('--input', '-i', type=str,
                         help='Input JSON file with articles')
     parser.add_argument('--output', '-o', type=str,
@@ -289,7 +294,7 @@ def main():
     args = parser.parse_args()
     
     if args.test:
-        run_test(args.model)
+        run_test(args.model, args.checkpoint)
     elif args.input:
         output = args.output or args.input.replace('.json', f'_labeled_{args.model}.json')
         label_articles_from_file(
@@ -297,7 +302,8 @@ def main():
             output_file=output,
             model_name=args.model,
             quartiere=args.quartiere,
-            aggregation=args.aggregation
+            aggregation=args.aggregation,
+            checkpoint=args.checkpoint
         )
     else:
         parser.print_help()

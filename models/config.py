@@ -40,7 +40,7 @@ MODELS = {
         'name': 'UmBERTo',
         'checkpoint': 'umberto_fine_tuned_model',
         'base_model': 'Musixmatch/umberto-commoncrawl-cased-v1',
-        'use_fast_tokenizer': True,
+        'use_fast_tokenizer': False,
         'output_dir': 'data/labeled_umberto'
     }
 }

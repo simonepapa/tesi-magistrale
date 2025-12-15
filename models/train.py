@@ -4,13 +4,15 @@ Model Training
 Unified training script for all models (BERT, mDeBERTa, UmBERTo).
 
 Usage:
-    python train.py --model bert
+    python train.py --model bert --dataset dataset.json
+    python train.py --model bert --dataset_dir datasets/gemma-3-27b-it
     python train.py --model mdeberta --epochs 5 --batch_size 16
-    python train.py --model umberto --learning_rate 1e-5
+    python train.py --model umberto --dataset_dir datasets/gemma-3-27b-it --learning_rate 1e-5
 """
 
 import os
 import json
+import glob
 import torch
 import numpy as np
 import pandas as pd
@@ -48,37 +50,153 @@ def check_gpu():
         return torch.device("cpu")
 
 
-def load_dataset(path: str, test_size: float = 0.1, val_size: float = 0.1):
+def load_json_files_from_folder(folder_path: str) -> list:
+    """Load and combine all JSON files from a folder.
+    
+    :param folder_path: str: Path to the folder containing JSON files.
+    :returns: list: Combined list of all articles from all JSON files.
+    """
+    all_articles = []
+    json_files = glob.glob(os.path.join(folder_path, "*.json"))
+    
+    if not json_files:
+        raise ValueError(f"No JSON files found in {folder_path}")
+    
+    print(f"Found {len(json_files)} JSON file(s) in {folder_path}:")
+    for json_file in sorted(json_files):
+        with open(json_file, 'r', encoding='utf-8') as f:
+            articles = json.load(f)
+            print(f"  - {os.path.basename(json_file)}: {len(articles)} articles")
+            all_articles.extend(articles)
+    
+    print(f"Total articles loaded: {len(all_articles)}")
+    return all_articles
+
+
+def convert_labels_format(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert the labels from array format to one-hot encoded columns.
+    
+    Supports both old format (labels as columns) and new format (labels as array).
+    
+    :param df: pd.DataFrame: DataFrame with articles
+    :returns: pd.DataFrame: DataFrame with one-hot encoded label columns
+    """
+    # Check if labels column exists (new format with array)
+    if 'labels' in df.columns:
+        print("Detected new format: converting labels array to one-hot columns...")
+        
+        # Initialize all label columns with 0
+        for label in LABELS:
+            df[label] = 0
+        
+        # Convert labels array to one-hot columns
+        for idx, row in df.iterrows():
+            labels_list = row.get('labels', [])
+            if isinstance(labels_list, list):
+                for label in labels_list:
+                    if label in LABELS:
+                        df.at[idx, label] = 1
+        
+        # Drop the original labels column
+        df = df.drop(columns=['labels'])
+    else:
+        print("Detected old format: labels already as columns")
+    
+    return df
+
+
+def load_dataset(path: str = None, folder: str = None, test_file: str = None, test_size: float = 0.1, val_size: float = 0.1):
     """Load and prepare the dataset with train/val/test splits.
 
-    :param path: str: Path to the dataset JSON file.
+    :param path: str: Path to the dataset JSON file (optional if folder is provided).
+    :param folder: str: Path to folder containing JSON files (optional if path is provided).
+    :param test_file: str: Optional path to a separate test set file.
     :param test_size: float: Proportion of the dataset to include in the test split. (Default value = 0.1)
     :param val_size: float: Proportion of the dataset to include in the validation split. (Default value = 0.1)
 
     """
-    print(f"\nLoading dataset from {path}...")
+    # Load data from folder or file
+    if folder:
+        print(f"\nLoading training data from folder: {folder}")
+        articles = load_json_files_from_folder(folder)
+        df = pd.DataFrame(articles)
+    elif path:
+        print(f"\nLoading training data from file: {path}")
+        df = pd.read_json(path)
+    else:
+        raise ValueError("Either 'path' or 'folder' must be provided")
     
-    df = pd.read_json(path)
-    df = df.sample(frac=1.0, random_state=42)  # Shuffle
+    # Load separate test set if provided
+    df_test_separate = None
+    if test_file and os.path.exists(test_file):
+        print(f"Loading separate test set from: {test_file}")
+        df_test_separate = pd.read_json(test_file)
+        df_test_separate = convert_labels_format(df_test_separate)
+    
+    # Convert labels format if needed
+    df = convert_labels_format(df)
+    
+    # Shuffle
+    df = df.sample(frac=1.0, random_state=42)
     
     # Check which labels exist
     available_labels = [l for l in LABELS if l in df.columns]
     print(f"Available labels: {len(available_labels)}/{len(LABELS)}")
     
+    # Show label distribution
+    print("\nLabel distribution (Training Set):")
+    for label in available_labels:
+        count = df[label].sum()
+        print(f"  {label}: {count}")
+    
+    # Ensure content column exists
+    def ensure_content(dframe):
+        if 'contenuto' in dframe.columns and 'content' not in dframe.columns:
+            dframe['content'] = dframe['contenuto']
+        if 'content' not in dframe.columns:
+            raise ValueError("Dataset must have a 'content' column with article text")
+        return dframe
+
+    df = ensure_content(df)
+    if df_test_separate is not None:
+        df_test_separate = ensure_content(df_test_separate)
+    
     # Create one-hot labels
     df['one_hot_labels'] = df[available_labels].values.tolist()
+    if df_test_separate is not None:
+        # Create one-hot labels for test set (using same available labels)
+        for label in available_labels:
+            if label not in df_test_separate.columns:
+                df_test_separate[label] = 0
+        df_test_separate['one_hot_labels'] = df_test_separate[available_labels].values.tolist()
     
     # Keep only content and labels
     df = df[['content', 'one_hot_labels']]
+    if df_test_separate is not None:
+        df_test_separate = df_test_separate[['content', 'one_hot_labels']]
     
-    # Split: first train+val vs test, then train vs val
-    df_trainval, df_test = train_test_split(
-        df, test_size=test_size, random_state=42, shuffle=True
-    )
-    df_train, df_val = train_test_split(
-        df_trainval, test_size=val_size/(1-test_size), random_state=42, shuffle=True
-    )
+    # Split logic
+    if df_test_separate is not None:
+        # If separate test set is provided:
+        # 1. Use the separate file as Test Set
+        df_test = df_test_separate
+        
+        # 2. Split the main dataset into Train (90%) and Val (10%)
+        # Note: val_size is roughly 0.1
+        df_train, df_val = train_test_split(
+            df, test_size=val_size, random_state=42, shuffle=True
+        )
+    else:
+        # Standard split: Train+Val vs Test
+        df_trainval, df_test = train_test_split(
+            df, test_size=test_size, random_state=42, shuffle=True
+        )
+        # Then Train vs Val
+        df_train, df_val = train_test_split(
+            df_trainval, test_size=val_size/(1-test_size), random_state=42, shuffle=True
+        )
     
+    print(f"\nDataset splits:")
     print(f"  Train: {len(df_train)} samples")
     print(f"  Val:   {len(df_val)} samples")
     print(f"  Test:  {len(df_test)} samples")
@@ -160,13 +278,28 @@ def train(args):
     
     config = get_model_config(args.model)
     base_model = config['base_model']
-    output_dir = config['checkpoint']
-    results_dir = f"training_results_{args.model}"
+    
+    # Extract dataset name from path
+    if args.dataset_dir:
+        dataset_name = os.path.basename(os.path.normpath(args.dataset_dir))
+    else:
+        # Extract from filename
+        dataset_name = os.path.splitext(os.path.basename(args.dataset))[0]
+    
+    # Create organized output directories
+    # Structure: results/{model}/{dataset}/
+    base_results_dir = "results"
+    model_dir = os.path.join(base_results_dir, args.model, dataset_name)
+    output_dir = os.path.join(model_dir, "model")
+    results_dir = os.path.join(model_dir, "training_logs")
     
     # Setup
     device = check_gpu()
-    os.makedirs(results_dir, exist_ok=True)
+    os.makedirs(model_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(results_dir, exist_ok=True)
+    
+    print(f"\nOutput directory: {model_dir}")
     
     # Disable wandb
     os.environ["WANDB_DISABLED"] = "true"
@@ -187,7 +320,11 @@ def train(args):
     model.to(device)
     
     # Load and preprocess dataset
-    dataset, available_labels = load_dataset(args.dataset)
+    dataset, available_labels = load_dataset(
+        path=args.dataset if not args.dataset_dir else None,
+        folder=args.dataset_dir,
+        test_file=args.test_file
+    )
     
     print("\nTokenizing dataset...")
     encoded_dataset = dataset.map(
@@ -263,10 +400,13 @@ def train(args):
         "model_type": args.model,
         "model_name": config['name'],
         "base_model": base_model,
+        "dataset_name": dataset_name,
+        "dataset_source": args.dataset_dir or args.dataset,
         "trained_at": datetime.now().isoformat(),
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
+        "patience": args.patience,
         "train_samples": len(encoded_dataset["train"]),
         "val_samples": len(encoded_dataset["validation"]),
         "test_samples": len(encoded_dataset["test"]),
@@ -274,17 +414,92 @@ def train(args):
         "labels": LABELS
     }
     
-    with open(f"{output_dir}/training_info.json", "w") as f:
+    with open(f"{model_dir}/training_info.json", "w") as f:
         json.dump(training_info, f, indent=2)
     
     print("\n" + "="*60)
     print("TRAINING COMPLETE!")
     print("="*60)
-    print(f"\nModel saved to: {output_dir}/")
-    print(f"Training info saved to: {output_dir}/training_info.json")
+    print(f"\nResults saved to: {model_dir}/")
+    print(f"  - Model: {output_dir}/")
+    print(f"  - Training logs: {results_dir}/")
+    print(f"  - Training info: {model_dir}/training_info.json")
     print("\nNext steps:")
-    print(f"  1. Run 'python evaluate.py --model {args.model}' for detailed metrics")
+    print(f"  1. Run 'python evaluate.py --model {args.model} --dataset_dir {args.dataset_dir or args.dataset}' for detailed metrics")
     print(f"  2. Run 'python inference.py --model {args.model} --test' to test inference")
+
+
+# Optimized parameters per model (used when --model all)
+MODEL_OPTIMAL_PARAMS = {
+    'bert': {'batch_size': 32, 'learning_rate': 2e-5},
+    'mdeberta': {'batch_size': 16, 'learning_rate': 1e-5},
+    'umberto': {'batch_size': 32, 'learning_rate': 2e-5}
+}
+
+
+def train_all_models(args):
+    """Train all models sequentially with optimized parameters.
+    
+    :param args: argparse.Namespace: command line arguments
+    """
+    models = get_available_models()
+    total_models = len(models)
+    
+    print("="*60)
+    print("TRAINING ALL MODELS")
+    print("="*60)
+    print(f"\nModels to train: {', '.join(models)}")
+    print(f"Dataset: {args.dataset_dir or args.dataset}")
+    print(f"Epochs: {args.epochs}")
+    print("="*60)
+    
+    results_summary = {}
+    
+    for i, model_name in enumerate(models, 1):
+        print(f"\n{'#'*60}")
+        print(f"# [{i}/{total_models}] Training {model_name.upper()}")
+        print(f"{'#'*60}")
+        
+        # Use optimal parameters for this model (unless user specified custom values)
+        optimal = MODEL_OPTIMAL_PARAMS.get(model_name, {})
+        
+        # Create a copy of args with model-specific parameters
+        model_args = argparse.Namespace(**vars(args))
+        model_args.model = model_name
+        
+        # Use user-specified values if provided, otherwise use optimal defaults
+        if not args.custom_batch_size:
+            model_args.batch_size = optimal.get('batch_size', args.batch_size)
+        if not args.custom_learning_rate:
+            model_args.learning_rate = optimal.get('learning_rate', args.learning_rate)
+        
+        print(f"\nParameters for {model_name}:")
+        print(f"  - Batch size: {model_args.batch_size}")
+        print(f"  - Learning rate: {model_args.learning_rate}")
+        
+        try:
+            train(model_args)
+            results_summary[model_name] = "SUCCESS"
+        except Exception as e:
+            print(f"\nERROR training {model_name}: {e}")
+            results_summary[model_name] = f"FAILED: {str(e)}"
+        
+        # Clear GPU memory between models
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    
+    # Final summary
+    print("\n" + "="*60)
+    print("ALL MODELS TRAINING COMPLETE!")
+    print("="*60)
+    print("\nSummary:")
+    for model_name, status in results_summary.items():
+        print(f"  {model_name}: {status}")
+    print("\nResults saved to:")
+    for model_name in models:
+        if results_summary.get(model_name) == "SUCCESS":
+            dataset_name = os.path.basename(os.path.normpath(args.dataset_dir)) if args.dataset_dir else os.path.splitext(os.path.basename(args.dataset))[0]
+            print(f"  - results/{model_name}/{dataset_name}/")
 
 
 def main():
@@ -294,22 +509,45 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--model', '-m', type=str, default='bert',
-                        choices=get_available_models(),
-                        help='Model to train (default: bert)')
-    parser.add_argument('--dataset', '-d', type=str, default='dataset.json',
-                        help='Path to dataset JSON file')
-    parser.add_argument('--epochs', '-e', type=int, default=5,
-                        help='Number of training epochs (default: 5)')
-    parser.add_argument('--batch_size', '-b', type=int, default=24,
-                        help='Batch size (default: 24, reduce for less VRAM)')
-    parser.add_argument('--learning_rate', '-lr', type=float, default=2e-5,
-                        help='Learning rate (default: 2e-5)')
+                        choices=get_available_models() + ['all'],
+                        help='Model to train, or "all" to train all models (default: bert)')
+    parser.add_argument('--dataset', '-d', type=str, default=None,
+                        help='Path to a single dataset JSON file')
+    parser.add_argument('--dataset_dir', type=str, default=None,
+                        help='Path to folder containing JSON files (alternative to --dataset)')
+    parser.add_argument('--test_file', type=str, default=None,
+                        help='Path to a separate test set JSON file (optional)')
+    parser.add_argument('--epochs', '-e', type=int, default=10,
+                        help='Number of training epochs (default: 10)')
+    parser.add_argument('--batch_size', '-b', type=int, default=None,
+                        help='Batch size (default: optimized per model)')
+    parser.add_argument('--learning_rate', '-lr', type=float, default=None,
+                        help='Learning rate (default: optimized per model)')
     parser.add_argument('--patience', '-p', type=int, default=2,
                         help='Early stopping patience (default: 2)')
     
     args = parser.parse_args()
-    train(args)
+    
+    # Validate dataset arguments
+    if not args.dataset and not args.dataset_dir:
+        parser.error("You must specify either --dataset or --dataset_dir")
+    
+    # Track if user specified custom values
+    args.custom_batch_size = args.batch_size is not None
+    args.custom_learning_rate = args.learning_rate is not None
+    
+    # Set defaults if not specified
+    if args.batch_size is None:
+        args.batch_size = 32  # Default for single model training
+    if args.learning_rate is None:
+        args.learning_rate = 2e-5  # Default for single model training
+    
+    if args.model == 'all':
+        train_all_models(args)
+    else:
+        train(args)
 
 
 if __name__ == "__main__":
     main()
+

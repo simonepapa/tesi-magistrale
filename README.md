@@ -5,7 +5,7 @@ A multi-label classification system for Italian news articles, specifically desi
 ## Project Structure
 
 ```
-├── Dataset generation/          # Synthetic dataset generation using LLMs
+├── datasets_generation/         # Synthetic dataset generation using LLMs
 │   ├── generate_dataset.py      # Generation with Gemini Flash
 │   └── generate_dataset_gemma.py # Generation with Gemma
 │
@@ -22,6 +22,13 @@ A multi-label classification system for Italian news articles, specifically desi
 │   └── extract_streets.py       # Street name extraction
 │
 ├── datasets/                    # Generated and realistic datasets
+│   └── xyz/                     # Dataset generated with xyz
+│
+├── results/                     # Training results (auto-generated)
+│   ├── bert/
+│   │   └── xyz/                 # Results for BERT on xyz dataset
+│   ├── mdeberta/
+│   └── umberto/
 │
 ├── BERTMAN/                     # Web application
 │   ├── frontend/                # React frontend
@@ -71,23 +78,36 @@ Three transformer models are supported:
 ```bash
 cd models
 
-# Train BERT (default)
-python train.py --model bert --epochs 5 --batch_size 24
+# Train all models sequentially
+python train.py --model all --dataset_dir ../datasets/gemma-3-27b-it --epochs 6
 
-# Train mDeBERTa
-python train.py --model mdeberta --epochs 5 --batch_size 16
+# Train a single model
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --epochs 6
+
+# Train from a single JSON file
+python train.py --model bert --dataset dataset.json --epochs 6
+
+# Override default parameters (optional)
+python train.py --model mdeberta --dataset_dir ../datasets/gemma-3-27b-it --epochs 6 --batch_size 16 --learning_rate 1e-5
 
 # Train UmBERTo
-python train.py --model umberto --epochs 5
+python train.py --model umberto --dataset_dir ../datasets/gemma-3-27b-it --epochs 6 --batch_size 32
 ```
+
+When using `--model all`, the script uses optimized parameters for each model.
+
+> **Note**: The training script supports both the old project format (manual labels as boolean columns) and the new format (labels as an array, e.g. `"labels": ["omicidio", "rapina"]`). The format is automatically detected.
 
 ### Evaluation
 
 ```bash
-# Evaluate model on test set
+# Evaluate from a folder
+python evaluate.py --model bert --dataset_dir ../datasets/gemma-3-27b-it
+
+# Evaluate from a single file
 python evaluate.py --model bert --dataset dataset.json
 
-# Results are saved to evaluation_results_<model>/
+# Results are saved to evaluation_results_{model}/
 ```
 
 ### Inference
@@ -95,6 +115,9 @@ python evaluate.py --model bert --dataset dataset.json
 ```bash
 # Test inference with sample text
 python inference.py --model bert --test
+
+# Test with a specific trained checkpoint
+python inference.py --model bert --checkpoint results/bert/gemma-3-27b-it/model --test
 
 # Label articles from a JSON file
 python inference.py --model bert --input data/articles.json --output data/labeled.json
@@ -112,9 +135,18 @@ python label_quartieri.py --model bert --skip-labeling
 
 ### Compare Models
 
+To compare the performance of BERT, mDeBERTa, and UmBERTo:
+
 ```bash
-python compare_models.py
+# Full comparison on a specific dataset
+python compare_models.py --mode full --dataset_models gemma-3-27b-it --test_file ../datasets/test_set.json
 ```
+
+Arguments:
+
+- `--mode`: `quick` (sample text), `sample` (10 random articles), `evaluate` or `full` (full test set evaluation).
+- `--dataset_models`: Name of the dataset folder in `results/` where trained models are located.
+- `--test_file`: Path to the test set JSON file.
 
 ## Dataset Generation
 
@@ -131,7 +163,7 @@ python generate_dataset.py --type all
 
 # Using Gemma (as of 09/12/2025 has higher limits)
 python generate_dataset_gemma.py --type crime
-python generate_dataset_gemma.py --type all --batches_crime 60 --batches_non_crime 700
+python generate_dataset_gemma.py --type all --batches_crime 60 --batches_non_crime 1560
 ```
 
 ### Multi-Label Support

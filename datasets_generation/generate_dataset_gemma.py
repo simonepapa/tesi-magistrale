@@ -35,7 +35,7 @@ if not API_KEY:
 genai.configure(api_key=API_KEY)
 
 # Gemma model as it currently has high limits (09-12-2025)
-MODEL_NAME = "gemma-3-12b-it"
+MODEL_NAME = "gemma-3-27b-it"
 
 # Gemma config: the greater the temperature, the more variety in the news
 generation_config_crimine = {
@@ -153,7 +153,7 @@ lista_pesi = list(argomenti_pesati.values())
 # --- DEFAULTS ---
 ROWS_PER_BATCH = 5
 DEFAULT_BATCHES_CRIME = 75       # Per category: 75 * 5 * 0.8 = 300 single-label per category
-DEFAULT_BATCHES_NON_CRIME = 700  # = ~3500 articles
+DEFAULT_BATCHES_NON_CRIME = 780  # = ~7800 articles
 DEFAULT_BATCHES_AMBIGUOUS = 35   # = ~175 articles
 MAX_CONSECUTIVE_ERRORS = 10
 MAX_RETRIES_MULTIPLIER = 3       # Maximum retries = target * this multiplier
@@ -303,7 +303,7 @@ def load_streets():
     """Load street names from Excel file."""
     print("Loading streets file...")
     try:
-        df_vie = pd.read_excel("stradario_bari.xlsx")
+        df_vie = pd.read_excel("../stradario_bari.xlsx")
         df_vie['NOME_COMPLETO'] = df_vie.iloc[:, 2].astype(str).str.strip() + " " + df_vie.iloc[:, 3].astype(str).str.strip()
         streets = [v for v in df_vie['NOME_COMPLETO'].tolist() if len(v) > 4 and "nan" not in v.lower()]
         print(f"  Loaded {len(streets)} streets")
@@ -398,9 +398,14 @@ def generate_crime_news(batches, streets, output_dir, categories=None, skip_mult
     else:
         selected_categories = categorie_crimine
     
-    # Calculate targets: 80% single-label, 20% multi-label
+    # Calculate targets:
+    # - Single-label: 80% of batches per category
+    # - Multi-label: 20% of total single-label articles
     single_label_target_per_cat = int(batches * ROWS_PER_BATCH * 0.8) if not categories else batches * ROWS_PER_BATCH
-    multilabel_target_per_combo = int(batches * ROWS_PER_BATCH * 0.2 / len(combinazioni_multilabel)) if not categories else 0
+    total_single_target = single_label_target_per_cat * len(selected_categories if not categories else categorie_crimine)
+    
+    multilabel_total_target = int(total_single_target * 0.2) if not categories else 0  # 20% of single-label
+    multilabel_target_per_combo = int(multilabel_total_target / len(combinazioni_multilabel)) if multilabel_total_target > 0 else 0
     
     # Skip multilabel if only generating specific categories or flag is set
     if skip_multilabel or categories:
@@ -817,7 +822,7 @@ def generate(args):
     
     # Print configuration
     print("\n" + "="*60)
-    print("DATASET GENERATOR - GEMMA 3 12B IT")
+    print("DATASET GENERATOR - GEMMA")
     print("="*60)
     print(f"Type: {args.type}")
     print(f"Output directory: {output_dir}")

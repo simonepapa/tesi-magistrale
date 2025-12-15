@@ -12,6 +12,7 @@ Usage:
 
 import os
 import json
+import glob
 import argparse
 import torch
 import numpy as np
@@ -28,24 +29,100 @@ from config import LABELS, THRESHOLD, MAX_LENGTH, get_model_config, get_availabl
 from inference import load_model as load_inference_model
 
 
-def load_model(model_name: str = 'bert'):
+def load_model(model_name: str = 'bert', checkpoint: str = None):
     """Load model for evaluation.
 
     :param model_name: str: model name (Default value = 'bert')
+    :param checkpoint: str: custom checkpoint path (Default value = None)
 
     """
-    model, tokenizer, device, config = load_inference_model(model_name)
+    model, tokenizer, device, config = load_inference_model(model_name, checkpoint)
     return model, tokenizer, device, config
 
 
-def load_dataset(dataset_path: str):
+def load_json_files_from_folder(folder_path: str) -> list:
+    """Load and combine all JSON files from a folder.
+    
+    :param folder_path: str: Path to the folder containing JSON files.
+    :returns: list: Combined list of all articles from all JSON files.
+    """
+    all_articles = []
+    json_files = glob.glob(os.path.join(folder_path, "*.json"))
+    
+    if not json_files:
+        raise ValueError(f"No JSON files found in {folder_path}")
+    
+    print(f"Found {len(json_files)} JSON file(s) in {folder_path}:")
+    for json_file in sorted(json_files):
+        with open(json_file, 'r', encoding='utf-8') as f:
+            articles = json.load(f)
+            print(f"  - {os.path.basename(json_file)}: {len(articles)} articles")
+            all_articles.extend(articles)
+    
+    print(f"Total articles loaded: {len(all_articles)}")
+    return all_articles
+
+
+def convert_labels_format(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert the labels from array format to one-hot encoded columns.
+    
+    Supports both old format (labels as columns) and new format (labels as array).
+    
+    :param df: pd.DataFrame: DataFrame with articles
+    :returns: pd.DataFrame: DataFrame with one-hot encoded label columns
+    """
+    # Check if labels column exists (new format with array)
+    if 'labels' in df.columns:
+        print("Detected new format: converting labels array to one-hot columns...")
+        
+        # Initialize all label columns with 0
+        for label in LABELS:
+            df[label] = 0
+        
+        # Convert labels array to one-hot columns
+        for idx, row in df.iterrows():
+            labels_list = row.get('labels', [])
+            if isinstance(labels_list, list):
+                for label in labels_list:
+                    if label in LABELS:
+                        df.at[idx, label] = 1
+        
+        # Drop the originalv labels column
+        df = df.drop(columns=['labels'])
+    else:
+        print("Detected old format: labels already as columns")
+    
+    return df
+
+
+def load_dataset(dataset_path: str = None, dataset_dir: str = None):
     """Load and prepare the dataset.
 
-    :param dataset_path: str: path to the dataset
+    :param dataset_path: str: path to the dataset file (optional if dataset_dir provided)
+    :param dataset_dir: str: path to folder containing JSON files (optional if dataset_path provided)
 
     """
-    print(f"Loading dataset from {dataset_path}...")
-    df = pd.read_json(dataset_path)
+    # Load data from folder or file
+    if dataset_dir:
+        print(f"Loading dataset from folder: {dataset_dir}")
+        articles = load_json_files_from_folder(dataset_dir)
+        df = pd.DataFrame(articles)
+    elif dataset_path:
+        print(f"Loading dataset from {dataset_path}...")
+        df = pd.read_json(dataset_path)
+    else:
+        raise ValueError("Either 'dataset_path' or 'dataset_dir' must be provided")
+    
+    # Convert labels format if needed
+    df = convert_labels_format(df)
+    
+    # Ensure content column exists
+    if 'contenuto' in df.columns and 'content' not in df.columns:
+        df['content'] = df['contenuto']
+        print("Converted 'contenuto' column to 'content'")
+    
+    if 'content' not in df.columns:
+        raise ValueError("Dataset must have a 'content' column with article text")
     
     # Show class distribution
     print("\n" + "="*50)
@@ -319,12 +396,20 @@ def main():
     parser.add_argument('--model', '-m', type=str, default='bert',
                         choices=get_available_models(),
                         help='Model to evaluate (default: bert)')
-    parser.add_argument('--dataset', '-d', type=str, default='dataset.json',
-                        help='Path to dataset JSON file')
+    parser.add_argument('--checkpoint', '-c', type=str, default=None,
+                        help='Custom checkpoint path (e.g., results/bert/gemma-3-27b-it/model)')
+    parser.add_argument('--dataset', '-d', type=str, default=None,
+                        help='Path to a single dataset JSON file')
+    parser.add_argument('--dataset_dir', type=str, default=None,
+                        help='Path to folder containing JSON files (alternative to --dataset)')
     parser.add_argument('--output', '-o', type=str,
                         help='Output directory (default: evaluation_results_<model>)')
     
     args = parser.parse_args()
+    
+    # Validate dataset arguments
+    if not args.dataset and not args.dataset_dir:
+        parser.error("You must specify either --dataset or --dataset_dir")
     
     config = get_model_config(args.model)
     output_dir = args.output or f"evaluation_results_{args.model}"
@@ -336,8 +421,11 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     
     # Load model and data
-    model, tokenizer, device, _ = load_model(args.model)
-    df, available_labels = load_dataset(args.dataset)
+    model, tokenizer, device, _ = load_model(args.model, args.checkpoint)
+    df, available_labels = load_dataset(
+        dataset_path=args.dataset if not args.dataset_dir else None,
+        dataset_dir=args.dataset_dir
+    )
     
     # Run evaluation
     results, y_true, y_pred, y_probs, labels = evaluate_model(

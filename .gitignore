@@ -24,8 +24,11 @@ scraper/deduplicate_clustering.py
 scraper/deduplicate_hdbscan.py
 
 # Test set
-datasets/full_test_set.json
-datasets/test_set.json
+
+
+# Models
+models/results
+models/evaluation_results
 
 # Other
 docs
