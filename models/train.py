@@ -527,6 +527,11 @@ def train_kfold(args):
     base_model = config['base_model']
     n_folds = args.kfold
     
+    # Use optimal parameters for this model if not explicitly specified
+    optimal_params = MODEL_OPTIMAL_PARAMS.get(args.model, {})
+    batch_size = args.batch_size if args.custom_batch_size else optimal_params.get('batch_size', 32)
+    learning_rate = args.learning_rate if args.custom_learning_rate else optimal_params.get('learning_rate', 2e-5)
+    
     # Extract dataset name from path
     if args.dataset_dir:
         dataset_name = os.path.basename(os.path.normpath(args.dataset_dir))
@@ -547,6 +552,8 @@ def train_kfold(args):
     print("=" * 60)
     print(f"Model: {config['name']}")
     print(f"Folds: {n_folds}")
+    print(f"Batch size: {batch_size}")
+    print(f"Learning rate: {learning_rate}")
     print(f"Output: {model_dir}")
     print("=" * 60)
     
@@ -652,9 +659,9 @@ def train_kfold(args):
             output_dir=fold_results_dir,
             eval_strategy="epoch",
             save_strategy="epoch",
-            learning_rate=args.learning_rate,
-            per_device_train_batch_size=args.batch_size,
-            per_device_eval_batch_size=args.batch_size,
+            learning_rate=learning_rate,
+            per_device_train_batch_size=batch_size,
+            per_device_eval_batch_size=batch_size,
             num_train_epochs=args.epochs,
             weight_decay=0.01,
             warmup_ratio=0.1,
@@ -786,17 +793,40 @@ def main():
     if args.learning_rate is None:
         args.learning_rate = 2e-5  # Default for single model training
     
-    if args.kfold:
+    if args.kfold and args.kfold > 0:
         # K-Fold Cross-Validation mode
         if args.model == 'all':
-            print("ERROR: K-Fold cross-validation with --model all is not supported.")
-            print("Please specify a single model, e.g., --model bert --kfold 5")
-            return
-        train_kfold(args)
-    elif args.model == 'all':
-        train_all_models(args)
+            # Train all models with k-fold
+            print("=" * 60)
+            print(f"TRAINING ALL MODELS WITH {args.kfold}-FOLD CROSS-VALIDATION")
+            print("WARNING: This will take a long time!")
+            print("=" * 60)
+            models = get_available_models()
+            for model_name in models:
+                print(f"\n{'='*60}")
+                print(f"Training {model_name} with {args.kfold}-fold CV")
+                print("=" * 60)
+                args.model = model_name
+                # Reset custom flags for optimal params
+                args.custom_batch_size = False
+                args.custom_learning_rate = False
+                train_kfold(args)
+                # Clear GPU memory
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            # Reset model to 'all' for summary
+            args.model = 'all'
+            print("\n" + "=" * 60)
+            print("ALL MODELS TRAINING COMPLETE!")
+            print("=" * 60)
+        else:
+            train_kfold(args)
     else:
-        train(args)
+        # Standard training (no k-fold, uses train/val/test split)
+        if args.model == 'all':
+            train_all_models(args)
+        else:
+            train(args)
 
 
 if __name__ == "__main__":

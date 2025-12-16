@@ -78,29 +78,33 @@ Three transformer models are supported:
 ```bash
 cd models
 
-# Train all models sequentially
-python train.py --model all --dataset_dir ../datasets/gemma-3-27b-it --epochs 6
+# Train a single model (uses 5-fold CV by default with optimal params)
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it
 
-# Train a single model
-python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --epochs 6
-
-# Train from a single JSON file
-python train.py --model bert --dataset dataset.json --epochs 6
-
-# Override default parameters (optional)
-python train.py --model mdeberta --dataset_dir ../datasets/gemma-3-27b-it --epochs 6 --batch_size 16 --learning_rate 1e-5
+# Train all models sequentially (WARNING: long training time!)
+python train.py --model all --dataset_dir ../datasets/gemma-3-27b-it
 
 # Add more (e.g real) articles to improve generalization
 python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --extra_train ../datasets/train_set_real.json
 
-# K-Fold Cross-Validation (5 folds)
-python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --kfold 5
+# Disable k-fold (use standard train/val/test split - faster)
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --kfold 0
 
-# Combined: real data + k-fold
-python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --extra_train ../datasets/train_set_real.json --kfold 5
+# Override default parameters (optional)
+python train.py --model mdeberta --dataset_dir ../datasets/gemma-3-27b-it --batch_size 8 --learning_rate 5e-6
+
+# Change number of folds
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --kfold 10
 ```
 
-When using `--model all`, the script uses optimized parameters for each model.
+**Training defaults:**
+
+- **K-Fold**: 5 folds (use `--kfold 0` to disable)
+- **Batch size**: 32 for BERT/UmBERTo, 16 for mDeBERTa
+- **Learning rate**: 2e-5 for BERT/UmBERTo, 1e-5 for mDeBERTa
+- **Epochs**: 10
+
+> ⚠️ **Warning**: Using `--model all` with k-fold trains 3 models × 5 folds = 15 training runs. Use `--kfold 0` for faster training.
 
 > **Note**: The training script supports both the old project format (manual labels as boolean columns) and the new format (labels as an array, e.g. `"labels": ["omicidio", "rapina"]`). The format is automatically detected.
 
