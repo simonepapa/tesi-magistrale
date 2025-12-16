@@ -90,8 +90,14 @@ python train.py --model bert --dataset dataset.json --epochs 6
 # Override default parameters (optional)
 python train.py --model mdeberta --dataset_dir ../datasets/gemma-3-27b-it --epochs 6 --batch_size 16 --learning_rate 1e-5
 
-# Train UmBERTo
-python train.py --model umberto --dataset_dir ../datasets/gemma-3-27b-it --epochs 6 --batch_size 32
+# Add more (e.g real) articles to improve generalization
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --extra_train ../datasets/train_set_real.json
+
+# K-Fold Cross-Validation (5 folds)
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --kfold 5
+
+# Combined: real data + k-fold
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --extra_train ../datasets/train_set_real.json --kfold 5
 ```
 
 When using `--model all`, the script uses optimized parameters for each model.
@@ -101,11 +107,17 @@ When using `--model all`, the script uses optimized parameters for each model.
 ### Evaluation
 
 ```bash
-# Evaluate from a folder
+# Evaluate a single model
 python evaluate.py --model bert --dataset_dir ../datasets/gemma-3-27b-it
+
+# Evaluate all models at once
+python evaluate.py --model all --dataset_dir ../datasets/gemma-3-27b-it
 
 # Evaluate from a single file
 python evaluate.py --model bert --dataset dataset.json
+
+# Specify which dataset's models to use
+python evaluate.py --model all --dataset_dir ../datasets/gemma-3-27b-it --dataset_models gemma-3-27b-it
 
 # Results are saved to evaluation_results_{model}/
 ```

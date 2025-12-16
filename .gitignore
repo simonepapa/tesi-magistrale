@@ -24,12 +24,15 @@ scraper/deduplicate_clustering.py
 scraper/deduplicate_hdbscan.py
 
 # Test set
-
+datasets/extract_real_articles.py
+datasets/full_dataset.json
+datasets/test_set.json
+datasets/train_set_real.json
 
 # Models
 models/results
-models/evaluation_results
+models/evaluation_results*
 
 # Other
-docs
+docs/
 check_similarity.py

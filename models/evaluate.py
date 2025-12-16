@@ -386,33 +386,43 @@ def plot_f1_scores(results, output_dir, model_name):
     plt.close()
     print(f"Saved F1 scores chart to: {output_path}")
 
+def find_checkpoint(model_name: str, dataset_name: str = None) -> str:
+    """Find the checkpoint path for a model.
+    
+    First tries results/{model}/{dataset}/model/, then falls back to config checkpoint.
+    
+    :param model_name: str: Model name (bert, mdeberta, umberto)
+    :param dataset_name: str: Dataset name (e.g., gemma-3-27b-it) (Default value = None)
+    :returns: str: Path to the checkpoint
+    """
+    # Try results directory first
+    if dataset_name:
+        results_path = os.path.join("results", model_name, dataset_name, "model")
+        if os.path.exists(results_path):
+            return results_path
+    
+    # Try to find any dataset in results/{model}/
+    model_results_dir = os.path.join("results", model_name)
+    if os.path.exists(model_results_dir):
+        for dataset_dir in os.listdir(model_results_dir):
+            model_path = os.path.join(model_results_dir, dataset_dir, "model")
+            if os.path.exists(model_path):
+                return model_path
+    
+    # Fall back to config checkpoint
+    config = get_model_config(model_name)
+    return config['checkpoint']
 
-def main():
-    """Main function to run the evaluation script."""
-    parser = argparse.ArgumentParser(
-        description="Unified model evaluation script",
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument('--model', '-m', type=str, default='bert',
-                        choices=get_available_models(),
-                        help='Model to evaluate (default: bert)')
-    parser.add_argument('--checkpoint', '-c', type=str, default=None,
-                        help='Custom checkpoint path (e.g., results/bert/gemma-3-27b-it/model)')
-    parser.add_argument('--dataset', '-d', type=str, default=None,
-                        help='Path to a single dataset JSON file')
-    parser.add_argument('--dataset_dir', type=str, default=None,
-                        help='Path to folder containing JSON files (alternative to --dataset)')
-    parser.add_argument('--output', '-o', type=str,
-                        help='Output directory (default: evaluation_results_<model>)')
+
+def evaluate_single_model(model_name: str, args, dataset_name: str = None):
+    """Evaluate a single model.
     
-    args = parser.parse_args()
-    
-    # Validate dataset arguments
-    if not args.dataset and not args.dataset_dir:
-        parser.error("You must specify either --dataset or --dataset_dir")
-    
-    config = get_model_config(args.model)
-    output_dir = args.output or f"evaluation_results_{args.model}"
+    :param model_name: str: Model name
+    :param args: argparse.Namespace: Command line arguments
+    :param dataset_name: str: Dataset name for checkpoint lookup
+    """
+    config = get_model_config(model_name)
+    output_dir = f"evaluation_results_{model_name}"
     
     print("="*60)
     print(f"MODEL EVALUATION - {config['name']}")
@@ -420,8 +430,12 @@ def main():
     
     os.makedirs(output_dir, exist_ok=True)
     
+    # Find checkpoint
+    checkpoint = args.checkpoint if args.checkpoint else find_checkpoint(model_name, dataset_name)
+    print(f"Using checkpoint: {checkpoint}")
+    
     # Load model and data
-    model, tokenizer, device, _ = load_model(args.model, args.checkpoint)
+    model, tokenizer, device, _ = load_model(model_name, checkpoint)
     df, available_labels = load_dataset(
         dataset_path=args.dataset if not args.dataset_dir else None,
         dataset_dir=args.dataset_dir
@@ -429,7 +443,7 @@ def main():
     
     # Run evaluation
     results, y_true, y_pred, y_probs, labels = evaluate_model(
-        df, model, tokenizer, device, available_labels, args.model
+        df, model, tokenizer, device, available_labels, model_name
     )
     
     # Generate plots
@@ -443,37 +457,117 @@ def main():
         json.dump(results, f, indent=2, ensure_ascii=False)
     print(f"\nSaved evaluation results to: {results_path}")
     
-    # Summary
-    print("\n" + "="*60)
-    print("EVALUATION COMPLETE!")
-    print("="*60)
-    print(f"\nOutput files in '{output_dir}/':")
-    print("  - evaluation_results.json")
-    print("  - confusion_matrices.png")
-    print("  - class_distribution.png")
-    print("  - f1_scores.png")
+    return results
+
+
+def main():
+    """Main function to run the evaluation script."""
+    available_models = get_available_models()
     
-    # Recommendations
-    low_f1_classes = [l for l, m in results['per_class_metrics'].items() if m['f1'] < 0.5]
-    low_support_classes = [l for l, m in results['per_class_metrics'].items() if m['support'] < 50]
+    parser = argparse.ArgumentParser(
+        description="Unified model evaluation script",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('--model', '-m', type=str, default='bert',
+                        choices=available_models + ['all'],
+                        help='Model to evaluate (default: bert). Use "all" to evaluate all models.')
+    parser.add_argument('--checkpoint', '-c', type=str, default=None,
+                        help='Custom checkpoint path (e.g., results/bert/gemma-3-27b-it/model)')
+    parser.add_argument('--dataset', '-d', type=str, default=None,
+                        help='Path to a single dataset JSON file')
+    parser.add_argument('--dataset_dir', type=str, default=None,
+                        help='Path to folder containing JSON files (alternative to --dataset)')
+    parser.add_argument('--dataset_models', type=str, default=None,
+                        help='Name of the dataset used for training (e.g., gemma-3-27b-it) to locate models in results/')
+    parser.add_argument('--output', '-o', type=str,
+                        help='Output directory (default: evaluation_results_<model>)')
     
-    if low_f1_classes or low_support_classes:
-        print("\n" + "="*60)
-        print("RECOMMENDATIONS")
+    args = parser.parse_args()
+    
+    # Validate dataset arguments
+    if not args.dataset and not args.dataset_dir:
+        parser.error("You must specify either --dataset or --dataset_dir")
+    
+    # Determine dataset name from dataset_dir if not specified
+    dataset_name = args.dataset_models
+    if not dataset_name and args.dataset_dir:
+        dataset_name = os.path.basename(os.path.normpath(args.dataset_dir))
+    
+    if args.model == 'all':
+        # Evaluate all models
+        print("="*60)
+        print("EVALUATING ALL MODELS")
+        print("="*60)
+        print(f"Models: {available_models}")
+        if dataset_name:
+            print(f"Dataset: {dataset_name}")
+        print("="*60 + "\n")
+        
+        all_results = {}
+        for model_name in available_models:
+            try:
+                results = evaluate_single_model(model_name, args, dataset_name)
+                all_results[model_name] = results
+                print("\n")
+            except Exception as e:
+                print(f"Error evaluating {model_name}: {e}")
+                print()
+        
+        # Print comparison summary
+        print("="*60)
+        print("EVALUATION SUMMARY")
+        print("="*60)
+        for model_name, results in all_results.items():
+            if results:
+                print(f"\n{model_name}:")
+                print(f"  F1 Macro: {results['overall_metrics']['macro_f1']:.4f}")
+                print(f"  F1 Micro: {results['overall_metrics']['micro_f1']:.4f}")
+    else:
+        # Evaluate single model
+        config = get_model_config(args.model)
+        output_dir = args.output or f"evaluation_results_{args.model}"
+        
+        print("="*60)
+        print(f"MODEL EVALUATION - {config['name']}")
         print("="*60)
         
-        if low_f1_classes:
-            print(f"\n! Classes with F1 < 0.5 (need improvement):")
-            for c in low_f1_classes:
-                print(f"   - {c}")
+        os.makedirs(output_dir, exist_ok=True)
         
-        if low_support_classes:
-            print(f"\n! Classes with <50 samples (data augmentation recommended):")
-            for c in low_support_classes:
-                print(f"   - {c}")
-    else:
-        print("\nAll classes have acceptable F1 scores and sample counts!")
+        # Find checkpoint
+        checkpoint = args.checkpoint if args.checkpoint else find_checkpoint(args.model, dataset_name)
+        print(f"Using checkpoint: {checkpoint}")
+        
+        # Load model and data
+        model, tokenizer, device, _ = load_model(args.model, checkpoint)
+        df, available_labels = load_dataset(
+            dataset_path=args.dataset if not args.dataset_dir else None,
+            dataset_dir=args.dataset_dir
+        )
+        
+        # Run evaluation
+        results, y_true, y_pred, y_probs, labels = evaluate_model(
+            df, model, tokenizer, device, available_labels, args.model
+        )
+        
+        # Generate plots
+        plot_class_distribution(df, labels, output_dir)
+        plot_confusion_matrices(y_true, y_pred, labels, output_dir, config['name'])
+        plot_f1_scores(results, output_dir, config['name'])
+        
+        # Save results to JSON
+        results_path = os.path.join(output_dir, 'evaluation_results.json')
+        with open(results_path, 'w', encoding='utf-8') as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+        print(f"\nSaved evaluation results to: {results_path}")
+        
+        # Summary
+        print("\n" + "="*60)
+        print("EVALUATION COMPLETE!")
+        print("="*60)
+        print(f"F1 Macro: {results['overall_metrics']['macro_f1']:.4f}")
+        print(f"F1 Micro: {results['overall_metrics']['micro_f1']:.4f}")
 
 
 if __name__ == "__main__":
     main()
+

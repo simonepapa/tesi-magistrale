@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import argparse
 from datetime import datetime
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 from sklearn.metrics import f1_score, roc_auc_score, accuracy_score
 from datasets import DatasetDict, Dataset
 from transformers import (
@@ -105,12 +105,13 @@ def convert_labels_format(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_dataset(path: str = None, folder: str = None, test_file: str = None, test_size: float = 0.1, val_size: float = 0.1):
+def load_dataset(path: str = None, folder: str = None, test_file: str = None, extra_train: str = None, test_size: float = 0.1, val_size: float = 0.1):
     """Load and prepare the dataset with train/val/test splits.
 
     :param path: str: Path to the dataset JSON file (optional if folder is provided).
     :param folder: str: Path to folder containing JSON files (optional if path is provided).
     :param test_file: str: Optional path to a separate test set file.
+    :param extra_train: str: Optional path to additional training data (e.g., real articles).
     :param test_size: float: Proportion of the dataset to include in the test split. (Default value = 0.1)
     :param val_size: float: Proportion of the dataset to include in the validation split. (Default value = 0.1)
 
@@ -125,6 +126,18 @@ def load_dataset(path: str = None, folder: str = None, test_file: str = None, te
         df = pd.read_json(path)
     else:
         raise ValueError("Either 'path' or 'folder' must be provided")
+    
+    # Load extra training data if provided
+    if extra_train and os.path.exists(extra_train):
+        print(f"Loading extra training data from: {extra_train}")
+        with open(extra_train, 'r', encoding='utf-8') as f:
+            extra_articles = json.load(f)
+        print(f"  Loaded {len(extra_articles)} extra articles")
+        # Combine with main dataset
+        extra_df = pd.DataFrame(extra_articles)
+        extra_df = convert_labels_format(extra_df)
+        df = pd.concat([df, extra_df], ignore_index=True)
+        print(f"  Combined dataset: {len(df)} articles")
     
     # Load separate test set if provided
     df_test_separate = None
@@ -323,7 +336,8 @@ def train(args):
     dataset, available_labels = load_dataset(
         path=args.dataset if not args.dataset_dir else None,
         folder=args.dataset_dir,
-        test_file=args.test_file
+        test_file=args.test_file,
+        extra_train=getattr(args, 'extra_train', None)
     )
     
     print("\nTokenizing dataset...")
@@ -502,6 +516,232 @@ def train_all_models(args):
             print(f"  - results/{model_name}/{dataset_name}/")
 
 
+def train_kfold(args):
+    """Train model using k-fold cross-validation.
+    
+    :param args: argparse.Namespace: command line arguments with kfold specified
+    """
+    from copy import deepcopy
+    
+    config = get_model_config(args.model)
+    base_model = config['base_model']
+    n_folds = args.kfold
+    
+    # Extract dataset name from path
+    if args.dataset_dir:
+        dataset_name = os.path.basename(os.path.normpath(args.dataset_dir))
+    else:
+        dataset_name = os.path.splitext(os.path.basename(args.dataset))[0]
+    
+    # Create output directories
+    base_results_dir = "results"
+    model_dir = os.path.join(base_results_dir, args.model, f"{dataset_name}_kfold{n_folds}")
+    os.makedirs(model_dir, exist_ok=True)
+    
+    # Setup
+    device = check_gpu()
+    os.environ["WANDB_DISABLED"] = "true"
+    
+    print("=" * 60)
+    print(f"K-FOLD CROSS-VALIDATION TRAINING")
+    print("=" * 60)
+    print(f"Model: {config['name']}")
+    print(f"Folds: {n_folds}")
+    print(f"Output: {model_dir}")
+    print("=" * 60)
+    
+    # Load full dataset
+    if args.dataset_dir:
+        print(f"\nLoading data from folder: {args.dataset_dir}")
+        articles = load_json_files_from_folder(args.dataset_dir)
+        df = pd.DataFrame(articles)
+    else:
+        print(f"\nLoading data from file: {args.dataset}")
+        df = pd.read_json(args.dataset)
+    
+    # Load extra training data if provided
+    if args.extra_train and os.path.exists(args.extra_train):
+        print(f"Loading extra training data from: {args.extra_train}")
+        with open(args.extra_train, 'r', encoding='utf-8') as f:
+            extra_articles = json.load(f)
+        print(f"  Loaded {len(extra_articles)} extra articles")
+        extra_df = pd.DataFrame(extra_articles)
+        extra_df = convert_labels_format(extra_df)
+        df = convert_labels_format(df)
+        df = pd.concat([df, extra_df], ignore_index=True)
+        print(f"  Combined dataset: {len(df)} articles")
+    else:
+        df = convert_labels_format(df)
+    
+    # Shuffle
+    df = df.sample(frac=1.0, random_state=42).reset_index(drop=True)
+    
+    # Check which labels exist
+    available_labels = [l for l in LABELS if l in df.columns]
+    print(f"\nAvailable labels: {len(available_labels)}/{len(LABELS)}")
+    
+    # Ensure content column exists
+    if 'contenuto' in df.columns and 'content' not in df.columns:
+        df['content'] = df['contenuto']
+    if 'content' not in df.columns:
+        raise ValueError("Dataset must have a 'content' column with article text")
+    
+    # Create one-hot labels
+    df['one_hot_labels'] = df[available_labels].values.tolist()
+    df = df[['content', 'one_hot_labels']]
+    
+    # Setup K-Fold
+    kfold = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+    
+    # Store metrics per fold
+    fold_metrics = []
+    
+    for fold, (train_idx, val_idx) in enumerate(kfold.split(df)):
+        print("\n" + "=" * 60)
+        print(f"FOLD {fold + 1}/{n_folds}")
+        print("=" * 60)
+        
+        # Create fold-specific directories
+        fold_output_dir = os.path.join(model_dir, f"fold_{fold + 1}", "model")
+        fold_results_dir = os.path.join(model_dir, f"fold_{fold + 1}", "training_logs")
+        os.makedirs(fold_output_dir, exist_ok=True)
+        os.makedirs(fold_results_dir, exist_ok=True)
+        
+        # Split data for this fold
+        df_train = df.iloc[train_idx].reset_index(drop=True)
+        df_val = df.iloc[val_idx].reset_index(drop=True)
+        
+        print(f"  Train: {len(df_train)} samples")
+        print(f"  Val:   {len(df_val)} samples")
+        
+        # Convert to HuggingFace datasets
+        train_dataset = Dataset.from_pandas(df_train, preserve_index=False)
+        val_dataset = Dataset.from_pandas(df_val, preserve_index=False)
+        
+        dataset = DatasetDict({
+            "train": train_dataset,
+            "validation": val_dataset
+        })
+        
+        # Load fresh model for each fold
+        print(f"\nLoading model: {base_model}")
+        tokenizer = AutoTokenizer.from_pretrained(
+            base_model, 
+            use_fast=config['use_fast_tokenizer']
+        )
+        model = AutoModelForSequenceClassification.from_pretrained(
+            base_model,
+            problem_type="multi_label_classification",
+            num_labels=len(LABELS),
+            id2label=id2label,
+            label2id=label2id
+        )
+        model.to(device)
+        
+        # Tokenize
+        print("Tokenizing dataset...")
+        encoded_dataset = dataset.map(
+            lambda x: preprocess_data(x, tokenizer),
+            batched=True,
+            remove_columns=dataset['train'].column_names
+        )
+        encoded_dataset.set_format("torch")
+        
+        # Training arguments
+        training_args = TrainingArguments(
+            output_dir=fold_results_dir,
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            learning_rate=args.learning_rate,
+            per_device_train_batch_size=args.batch_size,
+            per_device_eval_batch_size=args.batch_size,
+            num_train_epochs=args.epochs,
+            weight_decay=0.01,
+            warmup_ratio=0.1,
+            load_best_model_at_end=True,
+            metric_for_best_model="f1_macro",
+            greater_is_better=True,
+            save_total_limit=2,
+            logging_dir=fold_results_dir,
+            logging_steps=50,
+            fp16=torch.cuda.is_available(),
+            dataloader_num_workers=0,
+            report_to="none"
+        )
+        
+        # Trainer
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=encoded_dataset["train"],
+            eval_dataset=encoded_dataset["validation"],
+            tokenizer=tokenizer,
+            compute_metrics=compute_metrics,
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
+        )
+        
+        # Train
+        print(f"\nTraining fold {fold + 1}...")
+        trainer.train()
+        
+        # Evaluate
+        eval_results = trainer.evaluate()
+        fold_metrics.append({
+            'fold': fold + 1,
+            'f1_macro': eval_results.get('eval_f1_macro', 0),
+            'f1_micro': eval_results.get('eval_f1_micro', 0),
+            'accuracy': eval_results.get('eval_accuracy', 0)
+        })
+        print(f"\nFold {fold + 1} Results:")
+        print(f"  F1 Macro: {fold_metrics[-1]['f1_macro']:.4f}")
+        print(f"  F1 Micro: {fold_metrics[-1]['f1_micro']:.4f}")
+        print(f"  Accuracy: {fold_metrics[-1]['accuracy']:.4f}")
+        
+        # Save best model for this fold
+        trainer.save_model(fold_output_dir)
+        tokenizer.save_pretrained(fold_output_dir)
+        
+        # Clear memory
+        del model, trainer
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    
+    # Compute average metrics
+    avg_f1_macro = np.mean([m['f1_macro'] for m in fold_metrics])
+    avg_f1_micro = np.mean([m['f1_micro'] for m in fold_metrics])
+    avg_accuracy = np.mean([m['accuracy'] for m in fold_metrics])
+    std_f1_macro = np.std([m['f1_macro'] for m in fold_metrics])
+    
+    # Save summary
+    summary = {
+        'model': args.model,
+        'n_folds': n_folds,
+        'dataset': dataset_name,
+        'fold_metrics': fold_metrics,
+        'average_metrics': {
+            'f1_macro': avg_f1_macro,
+            'f1_macro_std': std_f1_macro,
+            'f1_micro': avg_f1_micro,
+            'accuracy': avg_accuracy
+        }
+    }
+    
+    with open(os.path.join(model_dir, 'kfold_summary.json'), 'w') as f:
+        json.dump(summary, f, indent=2)
+    
+    print("\n" + "=" * 60)
+    print("K-FOLD CROSS-VALIDATION COMPLETE!")
+    print("=" * 60)
+    print(f"\nAverage Results ({n_folds} folds):")
+    print(f"  F1 Macro: {avg_f1_macro:.4f} (+/- {std_f1_macro:.4f})")
+    print(f"  F1 Micro: {avg_f1_micro:.4f}")
+    print(f"  Accuracy: {avg_accuracy:.4f}")
+    print(f"\nResults saved to: {model_dir}/")
+
+
+
+
+
 def main():
     """Main function to parse command line arguments and run training."""
     parser = argparse.ArgumentParser(
@@ -525,6 +765,10 @@ def main():
                         help='Learning rate (default: optimized per model)')
     parser.add_argument('--patience', '-p', type=int, default=2,
                         help='Early stopping patience (default: 2)')
+    parser.add_argument('--extra_train', type=str, default=None,
+                        help='Path to additional training data file (e.g., real articles from train_set_real.json)')
+    parser.add_argument('--kfold', '-k', type=int, default=None,
+                        help='Number of folds for k-fold cross-validation (e.g., 5). If not set, standard train/val/test split is used.')
     
     args = parser.parse_args()
     
@@ -542,7 +786,14 @@ def main():
     if args.learning_rate is None:
         args.learning_rate = 2e-5  # Default for single model training
     
-    if args.model == 'all':
+    if args.kfold:
+        # K-Fold Cross-Validation mode
+        if args.model == 'all':
+            print("ERROR: K-Fold cross-validation with --model all is not supported.")
+            print("Please specify a single model, e.g., --model bert --kfold 5")
+            return
+        train_kfold(args)
+    elif args.model == 'all':
         train_all_models(args)
     else:
         train(args)
