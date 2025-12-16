@@ -767,8 +767,8 @@ def main():
                         help='Early stopping patience (default: 2)')
     parser.add_argument('--extra_train', type=str, default=None,
                         help='Path to additional training data file (e.g., real articles from train_set_real.json)')
-    parser.add_argument('--kfold', '-k', type=int, default=None,
-                        help='Number of folds for k-fold cross-validation (e.g., 5). If not set, standard train/val/test split is used.')
+    parser.add_argument('--kfold', '-k', type=int, default=5,
+                        help='Number of folds for k-fold cross-validation (default: 5)')
     
     args = parser.parse_args()
     
