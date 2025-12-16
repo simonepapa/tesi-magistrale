@@ -164,32 +164,32 @@ Arguments:
 - `--dataset_models`: Name of the dataset folder in `results/` where trained models are located.
 - `--test_file`: Path to the test set JSON file.
 
-### Grid Search (Hyperparameter Tuning)
+### Hyperparameter Search
 
-Find optimal hyperparameters for your models:
+Find optimal hyperparameters using three strategies:
 
 ```bash
-# Quick grid search (fewer combinations, faster)
-python grid_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --quick
+# Grid Search (exhaustive, tests all combinations)
+python hyperparam_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --method grid
+python hyperparam_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --method grid --quick
 
-# Full grid search
-python grid_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it
+# Random Search (samples random configurations)
+python hyperparam_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --method random --n_trials 10
 
-# Grid search all models
-python grid_search.py --model all --dataset_dir ../datasets/gemma-3-27b-it --quick
+# Bayesian Search with Optuna (intelligent search, recommended)
+python hyperparam_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --method bayesian --n_trials 20
 
 # With extra training data
-python grid_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --extra_train ../datasets/train_set_real.json
+python hyperparam_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --method bayesian --extra_train ../datasets/train_set_real.json
 ```
 
 **Parameters searched:**
 
-- **Learning rate**: 1e-5, 2e-5, 3e-5
-- **Batch size**: 16, 32
-- **Weight decay**: 0.01, 0.1 (full mode only)
-- **Warmup ratio**: 0.0, 0.1, 0.2 (full mode only)
-
-Results are saved to `grid_search_results.json` with the best configuration for each model.
+- **Learning rate**: 1e-6 to 1e-4 (log scale)
+- **Batch size**: 8, 16, 32
+- **Weight decay**: 0.001 to 0.3
+- **Warmup ratio**: 0.0 to 0.2
+- **Label smoothing**: 0.0 to 0.2 (random/bayesian only)
 
 ## Dataset Generation
 
