@@ -164,6 +164,33 @@ Arguments:
 - `--dataset_models`: Name of the dataset folder in `results/` where trained models are located.
 - `--test_file`: Path to the test set JSON file.
 
+### Grid Search (Hyperparameter Tuning)
+
+Find optimal hyperparameters for your models:
+
+```bash
+# Quick grid search (fewer combinations, faster)
+python grid_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --quick
+
+# Full grid search
+python grid_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it
+
+# Grid search all models
+python grid_search.py --model all --dataset_dir ../datasets/gemma-3-27b-it --quick
+
+# With extra training data
+python grid_search.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --extra_train ../datasets/train_set_real.json
+```
+
+**Parameters searched:**
+
+- **Learning rate**: 1e-5, 2e-5, 3e-5
+- **Batch size**: 16, 32
+- **Weight decay**: 0.01, 0.1 (full mode only)
+- **Warmup ratio**: 0.0, 0.1, 0.2 (full mode only)
+
+Results are saved to `grid_search_results.json` with the best configuration for each model.
+
 ## Dataset Generation
 
 Generate synthetic training data using LLMs:
