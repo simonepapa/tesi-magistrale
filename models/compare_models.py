@@ -405,7 +405,8 @@ def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10,
 
 
 def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None, 
-                        test_file: str = None, dataset_name: str = None, run_folders: Dict[str, str] = None):
+                        test_file: str = None, dataset_name: str = None, run_folders: Dict[str, str] = None,
+                        llm_results_file: str = None):
     """Run full evaluation on test set for all specified models.
 
     :param models_to_compare: List[str]: models to compare
@@ -437,6 +438,30 @@ def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None,
         config = get_model_config(model_name)
         all_metrics[config['name']] = metrics
         all_preds[config['name']] = preds
+    
+    # Add LLM results if provided
+    if llm_results_file and os.path.exists(llm_results_file):
+        print(f"\nLoading LLM results from: {llm_results_file}")
+        with open(llm_results_file, 'r', encoding='utf-8') as f:
+            llm_data = json.load(f)
+        
+        llm_name = "LLM"  # Short name for table display
+        llm_metrics = llm_data.get('metrics', {})
+        
+        # Convert per_class_f1 to expected format
+        per_class = llm_metrics.get('per_class_f1', {})
+        for label in LABELS:
+            llm_metrics[f'f1_{label}'] = per_class.get(label, 0.0)
+        
+        all_metrics[llm_name] = llm_metrics
+        
+        # Load binary predictions for agreement analysis if available
+        if 'binary_predictions' in llm_data:
+            all_preds[llm_name] = np.array(llm_data['binary_predictions'])
+            print(f"Added LLM with predictions for agreement analysis")
+        else:
+            all_preds[llm_name] = None
+            print(f"Added LLM (no predictions for agreement)")
     
     # Create comparison table
     print("\n" + "="*60)
@@ -494,12 +519,13 @@ def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None,
     
     print(f"\nCategory wins: " + ", ".join([f"{m}={wins[m]}" for m in model_names]))
     
-    # Agreement analysis (pairwise)
-    if len(model_names) >= 2:
+    # Agreement analysis (pairwise) - only for models with predictions
+    models_with_preds = [m for m in model_names if all_preds.get(m) is not None]
+    if len(models_with_preds) >= 2:
         print(f"\n{'─'*60}")
         print("Prediction Agreement (pairwise):")
-        for i, m1 in enumerate(model_names):
-            for m2 in model_names[i+1:]:
+        for i, m1 in enumerate(models_with_preds):
+            for m2 in models_with_preds[i+1:]:
                 agreement = np.sum(all_preds[m1] == all_preds[m2])
                 total = all_preds[m1].size
                 print(f"  {m1} vs {m2}: {100*agreement/total:.1f}%")
@@ -562,6 +588,8 @@ def main():
                         help='Run folder for mDeBERTa model (e.g. e10_b16_v1)')
     parser.add_argument('--umberto_run', type=str, default=None,
                         help='Run folder for UmBERTo model (e.g. e10_b32_v1)')
+    parser.add_argument('--llm_results', type=str, default=None,
+                        help='Path to LLM evaluation results JSON (from evaluate_llm_api.py)')
     
     args = parser.parse_args()
     
@@ -605,7 +633,7 @@ def main():
     elif args.mode == "sample":
         run_sample_comparison(models_to_compare, args.samples, args.dataset, args.test_file, args.dataset_models, run_folders)
     elif args.mode == "evaluate" or args.mode == "full":
-        run_full_evaluation(models_to_compare, args.dataset, args.test_file, args.dataset_models, run_folders)
+        run_full_evaluation(models_to_compare, args.dataset, args.test_file, args.dataset_models, run_folders, args.llm_results)
 
 
 if __name__ == "__main__":

@@ -25,9 +25,9 @@ from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
 # Config
-API_KEY = os.getenv("GOOGLE_API_KEY")
+API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
-    raise ValueError("GOOGLE_API_KEY not found in .env")
+    raise ValueError("GEMINI_API_KEY not found in .env")
 genai.configure(api_key=API_KEY)
 
 # Gemini-flash-lite model, currently unusable as Google greatly decreased free API limits (09-12-2025)

@@ -178,6 +178,29 @@ Arguments:
 - `--bert_run`: Run folder for BERT model (e.g., `e10_b32_v1`).
 - `--mdeberta_run`: Run folder for mDeBERTa model (e.g., `e10_b16_v1`).
 - `--umberto_run`: Run folder for UmBERTo model (e.g., `e10_b32_v1`).
+- `--llm_results`: Path to LLM evaluation results JSON (from `evaluate_llm_api.py`), to include LLM in comparison.
+
+### LLM Evaluation (API-based)
+
+Evaluate Gemma 3 models via Google AI API for comparison with fine-tuned models:
+
+```bash
+# Zero-shot classification
+python evaluate_llm_api.py --test_file ../datasets/test_set.json --model gemma-3-27b-it
+
+# Few-shot classification
+python evaluate_llm_api.py --test_file ../datasets/test_set.json --model gemma-3-27b-it --few_shot
+
+# Quick test with limited articles
+python evaluate_llm_api.py --test_file ../datasets/test_set.json --limit 100 --few_shot
+
+# Compare LLM with fine-tuned models
+python compare_models.py --mode full --test_file ../datasets/test_set.json \
+    --dataset_models gemma-3-27b-it \
+    --llm_results evaluation_results/llm_gemma-3-27b-it_fewshot_TIMESTAMP.json
+```
+
+Available models: `gemma-3-27b-it`, `gemma-3-12b-it`, `gemma-3-4b-it`, `gemma-3-2b-it`, `gemma-3-1b-it`
 
 ### Hyperparameter Search
 
@@ -370,5 +393,5 @@ sentence-transformers
 Create a `.env` file with your API keys:
 
 ```env
-GOOGLE_API_KEY=your_gemini_api_key
+GEMINI_API_KEY=your_gemini_api_key
 ```

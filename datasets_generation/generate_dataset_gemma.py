@@ -29,9 +29,9 @@ import numpy as np
 load_dotenv(find_dotenv())
 
 # Config
-API_KEY = os.getenv("GOOGLE_API_KEY")
+API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
-    raise ValueError("GOOGLE_API_KEY not found in .env")
+    raise ValueError("GEMINI_API_KEY not found in .env")
 genai.configure(api_key=API_KEY)
 
 # Gemma model as it currently has high limits (09-12-2025)

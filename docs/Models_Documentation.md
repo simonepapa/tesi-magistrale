@@ -15,6 +15,7 @@ Questo documento fornisce una descrizione dettagliata di ogni script e funzione 
 | `evaluate.py`          | Valutazione dettagliata con metriche e grafici   |
 | `inference.py`         | Inferenza con chunking per articoli lunghi       |
 | `compare_models.py`    | Confronto delle performance tra modelli          |
+| `evaluate_llm_api.py`  | Valutazione LLM via API (Gemma 3)                |
 | `hyperparam_search.py` | Grid/Random/Bayesian search iperparametri        |
 | `label_quartieri.py`   | Pipeline di labeling per quartieri di Bari       |
 | `extract_streets.py`   | Estrazione di indirizzi stradali dal testo       |
@@ -915,12 +916,96 @@ Script per confrontare le performance di più modelli sullo stesso dataset, anal
 | `--bert_run` | - | Cartella run per BERT (es. `e10_b32_v1`) |
 | `--mdeberta_run` | - | Cartella run per mDeBERTa (es. `e10_b16_v1`) |
 | `--umberto_run` | - | Cartella run per UmBERTo (es. `e10_b32_v1`) |
+| `--llm_results` | - | Path file JSON risultati LLM (da `evaluate_llm_api.py`) |
 
 ---
 
-## 7. `hyperparam_search.py` - Ottimizzazione Iperparametri
+## 7. `evaluate_llm_api.py` - Valutazione LLM via API
 
-### 7.1 Descrizione
+### 9.1 Descrizione
+
+Script per valutare modelli Gemma 3 via Google AI API per classificazione multi-label. Permette di confrontare le performance di LLM zero/few-shot con i modelli fine-tuned locali.
+
+### 7.2 Modelli Supportati
+
+- `gemma-3-27b-it` (default, migliore qualità)
+- `gemma-3-12b-it`
+- `gemma-3-4b-it`
+- `gemma-3-2b-it`
+- `gemma-3-1b-it`
+
+### 8.3 Funzioni Principali
+
+#### `setup_api(api_key) → None`
+
+**Scopo**: Configura l'API Google Generative AI.
+
+**Input**: `api_key` (str, opzionale): Chiave API (o usa env var `GEMINI_API_KEY`)
+
+---
+
+#### `create_model(model_name) → GenerativeModel`
+
+**Scopo**: Crea istanza del modello con safety settings per contenuti di cronaca nera.
+
+---
+
+#### `create_zero_shot_prompt(article_text) → str`
+
+**Scopo**: Genera prompt zero-shot per classificazione.
+
+---
+
+#### `create_few_shot_prompt(article_text) → str`
+
+**Scopo**: Genera prompt few-shot con 5 esempi per migliorare l'accuratezza.
+
+---
+
+#### `classify_article(model, article_text, few_shot) → Tuple[List[str], str]`
+
+**Scopo**: Classifica un singolo articolo via API.
+
+**Output**: Tupla (labels predette, risposta raw)
+
+---
+
+#### `evaluate_llm(model, test_df, few_shot, rate_limit_delay) → Dict`
+
+**Scopo**: Valuta LLM su intero test set.
+
+**Output**: Dizionario con metriche, predizioni binarie, errori.
+
+---
+
+#### `main() → None`
+
+**Scopo**: Entry point CLI.
+
+**Argomenti CLI**:
+| Argomento | Default | Descrizione |
+|-----------|---------|-------------|
+| `--test_file` | (required) | Path test set JSON |
+| `--model` | gemma-3-27b-it | Modello da usare |
+| `--few_shot` | False | Usa few-shot prompting |
+| `--api_key` | - | API key (o usa env var) |
+| `--delay` | 0.5 | Delay tra chiamate API (secondi) |
+| `--limit` | - | Limita numero articoli (per test) |
+| `--output` | auto | File output risultati |
+
+### 7.4 Output
+
+File JSON con:
+
+- Metriche (F1, precision, recall, accuracy)
+- Predizioni binarie (per agreement analysis)
+- Esempi di errori
+
+---
+
+## 8. `hyperparam_search.py` - Ottimizzazione Iperparametri
+
+### 9.1 Descrizione
 
 Script per ottimizzazione iperparametri con tre strategie di ricerca:
 
@@ -928,7 +1013,7 @@ Script per ottimizzazione iperparametri con tre strategie di ricerca:
 - **Random Search**: Campionamento casuale dello spazio di ricerca
 - **Bayesian Search**: Ottimizzazione intelligente con Optuna (TPE sampler)
 
-### 7.2 Costanti
+### 8.2 Costanti
 
 #### `GRID_PARAMS` / `QUICK_GRID_PARAMS`
 
@@ -957,7 +1042,7 @@ SEARCH_SPACE = {
 }
 ```
 
-### 7.3 Funzioni
+### 8.3 Funzioni
 
 #### `run_grid_search(...)` → List
 
@@ -997,7 +1082,7 @@ SEARCH_SPACE = {
 | `--quick` | false | Usa griglia ridotta (solo grid) |
 | `--output` | auto | File output risultati |
 
-### 7.4 Confronto Metodi
+### 8.4 Confronto Metodi
 
 | Metodo   | Velocità | Qualità          | Uso consigliato            |
 | -------- | -------- | ---------------- | -------------------------- |
@@ -1007,13 +1092,13 @@ SEARCH_SPACE = {
 
 ---
 
-## 8. `label_quartieri.py` - Pipeline Labeling Quartieri
+## 9. `label_quartieri.py` - Pipeline Labeling Quartieri
 
-### 8.1 Descrizione
+### 9.1 Descrizione
 
 Script per processare tutti i quartieri di Bari in pipeline: labeling → merge → deduplicazione.
 
-### 8.2 Funzioni
+### 9.2 Funzioni
 
 #### `label_all_quartieri(model_name) → str`
 
@@ -1097,7 +1182,7 @@ Raggruppa per titolo:
 
 ## 8. `extract_streets.py` - Estrattore Indirizzi
 
-### 8.1 Descrizione
+### 9.1 Descrizione
 
 Modulo per estrarre indirizzi stradali italiani dal testo degli articoli usando pattern regex.
 
