@@ -157,8 +157,17 @@ python label_quartieri.py --model bert --skip-labeling
 To compare the performance of BERT, mDeBERTa, and UmBERTo:
 
 ```bash
-# Full comparison on a specific dataset
+# Full comparison on a specific dataset (uses latest available version)
 python compare_models.py --mode full --dataset_models gemma-3-27b-it --test_file ../datasets/test_set.json
+
+# Specify run folder for each model separately
+python compare_models.py --mode full --dataset_models gemma-3-27b-it --test_file ../datasets/test_set.json \
+    --bert_run e10_b32_v1 \
+    --mdeberta_run e8_b16_v1 \
+    --umberto_run e10_b32_v1
+
+# Quick comparison with specific runs
+python compare_models.py --mode quick --dataset_models gemma-3-27b-it --bert_run e10_b32_v1
 ```
 
 Arguments:
@@ -166,6 +175,9 @@ Arguments:
 - `--mode`: `quick` (sample text), `sample` (10 random articles), `evaluate` or `full` (full test set evaluation).
 - `--dataset_models`: Name of the dataset folder in `results/` where trained models are located.
 - `--test_file`: Path to the test set JSON file.
+- `--bert_run`: Run folder for BERT model (e.g., `e10_b32_v1`).
+- `--mdeberta_run`: Run folder for mDeBERTa model (e.g., `e10_b16_v1`).
+- `--umberto_run`: Run folder for UmBERTo model (e.g., `e10_b32_v1`).
 
 ### Hyperparameter Search
 

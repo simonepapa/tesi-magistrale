@@ -34,5 +34,5 @@ models/results
 models/evaluation_results*
 
 # Other
-docs/
+
 check_similarity.py

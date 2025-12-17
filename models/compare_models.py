@@ -35,28 +35,67 @@ from tqdm import tqdm
 
 from config import LABELS, get_model_config, get_available_models
 from inference import load_model, predict_with_chunking
-def find_checkpoint(model_name: str, dataset_name: str = None) -> str:
+
+
+def find_checkpoint(model_name: str, dataset_name: str = None, run_folder: str = None) -> str:
     """Find the checkpoint path for a model.
     
     :param model_name: str: model name
     :param dataset_name: str: dataset name used for training (optional)
+    :param run_folder: str: specific run folder name for this model (e.g., 'e10_b32_v1') (optional)
     :returns: str: checkpoint path
     """
     if dataset_name:
-        # Check standard results structure: results/{model}/{dataset}/model
-        potential_path = os.path.join("results", model_name, dataset_name, "model")
-        if os.path.exists(potential_path):
-            return potential_path
+        dataset_path = os.path.join("results", model_name, dataset_name)
+        
+        # If run_folder specified, use it directly
+        if run_folder:
+            potential_path = os.path.join(dataset_path, run_folder, "model")
+            if os.path.exists(potential_path):
+                print(f"Using checkpoint: {potential_path}")
+                return potential_path
+            else:
+                print(f"Warning: Run folder '{run_folder}' not found for {model_name}, searching for alternatives...")
+        
+        # Check if dataset_path exists and look for versioned runs
+        if os.path.exists(dataset_path):
+            subdirs = sorted([d for d in os.listdir(dataset_path) 
+                            if os.path.isdir(os.path.join(dataset_path, d))], reverse=True)
+            
+            # Try versioned structure first: results/{model}/{dataset}/{run}/model
+            for subdir in subdirs:
+                potential_path = os.path.join(dataset_path, subdir, "model")
+                if os.path.exists(potential_path):
+                    print(f"Using checkpoint: {potential_path}")
+                    return potential_path
+            
+            # Fallback: old structure results/{model}/{dataset}/model
+            old_path = os.path.join(dataset_path, "model")
+            if os.path.exists(old_path):
+                return old_path
             
     # If no specific dataset or not found, check if there's any folder in results/{model}
     results_base = os.path.join("results", model_name)
     if os.path.exists(results_base):
         subdirs = [d for d in os.listdir(results_base) if os.path.isdir(os.path.join(results_base, d))]
         if subdirs:
-            # Pick the first one (most likely the one we want if only one exists)
-            potential_path = os.path.join(results_base, subdirs[0], "model")
-            if os.path.exists(potential_path):
-                return potential_path
+            # Check each dataset folder
+            for dataset_dir in subdirs:
+                dataset_path = os.path.join(results_base, dataset_dir)
+                run_subdirs = sorted([d for d in os.listdir(dataset_path) 
+                                     if os.path.isdir(os.path.join(dataset_path, d))], reverse=True)
+                
+                # Try versioned structure
+                for run_dir in run_subdirs:
+                    potential_path = os.path.join(dataset_path, run_dir, "model")
+                    if os.path.exists(potential_path):
+                        print(f"Using checkpoint: {potential_path}")
+                        return potential_path
+                
+                # Fallback: old structure
+                old_path = os.path.join(dataset_path, "model")
+                if os.path.exists(old_path):
+                    return old_path
 
     # Fallback to config default
     return None
@@ -117,16 +156,17 @@ def load_test_data(dataset_path: str = None, test_file: str = None, test_size: f
     return df_test
 
 
-def evaluate_single_model(model_name: str, test_df: pd.DataFrame, dataset_name: str = None) -> Tuple[Dict, np.ndarray, np.ndarray]:
+def evaluate_single_model(model_name: str, test_df: pd.DataFrame, dataset_name: str = None, run_folder: str = None) -> Tuple[Dict, np.ndarray, np.ndarray]:
     """Evaluate a single model on the test set.
 
     :param model_name: str: name of the model to evaluate
     :param test_df: pd.DataFrame: test set
     :param dataset_name: str: dataset name used for training (optional)
+    :param run_folder: str: specific run folder for this model (optional)
 
     """
     config = get_model_config(model_name)
-    checkpoint = find_checkpoint(model_name, dataset_name)
+    checkpoint = find_checkpoint(model_name, dataset_name, run_folder)
     display_name = f"{config['name']} ({'custom' if checkpoint else 'default'})"
     print(f"\nEvaluating {display_name}...")
     
@@ -224,13 +264,17 @@ def compare_predictions(predictions: Dict[str, Dict], content: str, title: str =
     return comparison
 
 
-def run_quick_comparison(models_to_compare: List[str], dataset_name: str = None):
+def run_quick_comparison(models_to_compare: List[str], dataset_name: str = None, run_folders: Dict[str, str] = None):
     """Quick side-by-side comparison on a single example.
 
     :param models_to_compare: List[str]: models to compare
     :param dataset_name: str: dataset name used for training (optional)
+    :param run_folders: Dict[str, str]: mapping of model name to run folder (optional)
 
     """
+    if run_folders is None:
+        run_folders = {}
+        
     print("\n" + "="*60)
     print("QUICK COMPARISON")
     print("="*60)
@@ -254,7 +298,8 @@ def run_quick_comparison(models_to_compare: List[str], dataset_name: str = None)
     
     for model_name in models_to_compare:
         config = get_model_config(model_name)
-        checkpoint = find_checkpoint(model_name, dataset_name)
+        run_folder = run_folders.get(model_name)
+        checkpoint = find_checkpoint(model_name, dataset_name, run_folder)
         print(f"\nLoading {config['name']} from {checkpoint or 'default'}...")
         model, tokenizer, device, _ = load_model(model_name, checkpoint)
         
@@ -292,7 +337,7 @@ def run_quick_comparison(models_to_compare: List[str], dataset_name: str = None)
 
 
 def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10, 
-                          dataset_path: str = None, test_file: str = None, dataset_name: str = None):
+                          dataset_path: str = None, test_file: str = None, dataset_name: str = None, run_folders: Dict[str, str] = None):
     """Compare models on a sample of articles.
 
     :param models_to_compare: List[str]: models to compare
@@ -300,8 +345,12 @@ def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10,
     :param dataset_path: str: path to the full dataset (optional)
     :param test_file: str: path to separate test file (optional)
     :param dataset_name: str: dataset name used for training (optional)
+    :param run_folders: Dict[str, str]: mapping of model name to run folder (optional)
 
     """
+    if run_folders is None:
+        run_folders = {}
+        
     print("\n" + "="*60)
     print("SAMPLE COMPARISON")
     print("="*60)
@@ -314,7 +363,8 @@ def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10,
     loaded_models = {}
     for model_name in models_to_compare:
         config = get_model_config(model_name)
-        checkpoint = find_checkpoint(model_name, dataset_name)
+        run_folder = run_folders.get(model_name)
+        checkpoint = find_checkpoint(model_name, dataset_name, run_folder)
         print(f"\nLoading {config['name']} from {checkpoint or 'default'}...")
         model, tokenizer, device, _ = load_model(model_name, checkpoint)
         loaded_models[model_name] = (model, tokenizer, device, config['name'])
@@ -355,15 +405,19 @@ def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10,
 
 
 def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None, 
-                        test_file: str = None, dataset_name: str = None):
+                        test_file: str = None, dataset_name: str = None, run_folders: Dict[str, str] = None):
     """Run full evaluation on test set for all specified models.
 
     :param models_to_compare: List[str]: models to compare
     :param dataset_path: str: path to the full dataset (optional)
     :param test_file: str: separate test file path (optional)
     :param dataset_name: str: dataset name used for training (optional)
+    :param run_folders: Dict[str, str]: mapping of model name to run folder (optional)
 
     """
+    if run_folders is None:
+        run_folders = {}
+        
     print("\n" + "="*60)
     print("FULL MODEL EVALUATION")
     print("="*60)
@@ -378,7 +432,8 @@ def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None,
     all_preds = {}
     
     for model_name in models_to_compare:
-        metrics, preds, probs = evaluate_single_model(model_name, test_df, dataset_name)
+        run_folder = run_folders.get(model_name)
+        metrics, preds, probs = evaluate_single_model(model_name, test_df, dataset_name, run_folder)
         config = get_model_config(model_name)
         all_metrics[config['name']] = metrics
         all_preds[config['name']] = preds
@@ -494,8 +549,23 @@ def main():
                         help='Path to a separate test set JSON file (optional)')
     parser.add_argument('--dataset_models', type=str, default=None,
                         help='Name of the dataset used for training (e.g. gemma-3-27b-it) to locate models in results/')
+    parser.add_argument('--bert_run', type=str, default=None,
+                        help='Run folder for BERT model (e.g. e10_b32_v1)')
+    parser.add_argument('--mdeberta_run', type=str, default=None,
+                        help='Run folder for mDeBERTa model (e.g. e10_b16_v1)')
+    parser.add_argument('--umberto_run', type=str, default=None,
+                        help='Run folder for UmBERTo model (e.g. e10_b32_v1)')
     
     args = parser.parse_args()
+    
+    # Build run_folders dict from per-model arguments
+    run_folders = {}
+    if args.bert_run:
+        run_folders['bert'] = args.bert_run
+    if args.mdeberta_run:
+        run_folders['mdeberta'] = args.mdeberta_run
+    if args.umberto_run:
+        run_folders['umberto'] = args.umberto_run
     
     # Validate dataset arguments
     if not args.dataset and not args.test_file and args.mode in ['evaluate', 'full', 'sample']:
@@ -520,13 +590,15 @@ def main():
     print(f"Comparing models: {models_to_compare}")
     if args.dataset_models:
         print(f"Using models trained on: {args.dataset_models}")
+    if run_folders:
+        print(f"Using specific runs: {run_folders}")
     
     if args.mode == "quick":
-        run_quick_comparison(models_to_compare, args.dataset_models)
+        run_quick_comparison(models_to_compare, args.dataset_models, run_folders)
     elif args.mode == "sample":
-        run_sample_comparison(models_to_compare, args.samples, args.dataset, args.test_file, args.dataset_models)
+        run_sample_comparison(models_to_compare, args.samples, args.dataset, args.test_file, args.dataset_models, run_folders)
     elif args.mode == "evaluate" or args.mode == "full":
-        run_full_evaluation(models_to_compare, args.dataset, args.test_file, args.dataset_models)
+        run_full_evaluation(models_to_compare, args.dataset, args.test_file, args.dataset_models, run_folders)
 
 
 if __name__ == "__main__":
