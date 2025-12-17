@@ -27,6 +27,7 @@ A multi-label classification system for Italian news articles, specifically desi
 ├── results/                     # Training results (auto-generated)
 │   ├── bert/
 │   │   └── xyz/                 # Results for BERT on xyz dataset
+│   │       └── e10_b32_v1/      # Versioned run (epochs, batch, version)
 │   ├── mdeberta/
 │   └── umberto/
 │

@@ -50,6 +50,37 @@ def check_gpu():
         return torch.device("cpu")
 
 
+def get_versioned_run_name(base_dir: str, epochs: int, batch_size: int, kfold: int = 0) -> str:
+    """Generate a versioned run name based on epochs, batch size, and existing versions.
+    
+    :param base_dir: str: Base directory where runs are stored (e.g., results/bert/gemma-3-27b-it)
+    :param epochs: int: Number of training epochs
+    :param batch_size: int: Batch size used for training
+    :param kfold: int: Number of k-fold splits (0 for standard training)
+    :returns: str: Versioned run name (e.g., 'e10_b32_v1' or 'e10_b32_kfold5_v1')
+    """
+    # Build base pattern
+    if kfold > 0:
+        base_pattern = f"e{epochs}_b{batch_size}_kfold{kfold}"
+    else:
+        base_pattern = f"e{epochs}_b{batch_size}"
+    
+    # Find existing versions
+    version = 1
+    if os.path.exists(base_dir):
+        existing_dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
+        # Find all matching patterns and extract version numbers
+        for d in existing_dirs:
+            if d.startswith(base_pattern + "_v"):
+                try:
+                    v = int(d.split("_v")[-1])
+                    version = max(version, v + 1)
+                except ValueError:
+                    pass
+    
+    return f"{base_pattern}_v{version}"
+
+
 def load_json_files_from_folder(folder_path: str) -> list:
     """Load and combine all JSON files from a folder.
     
@@ -300,9 +331,14 @@ def train(args):
         dataset_name = os.path.splitext(os.path.basename(args.dataset))[0]
     
     # Create organized output directories
-    # Structure: results/{model}/{dataset}/
+    # Structure: results/{model}/{dataset}/{e{epochs}_b{batch}_v{version}}/
     base_results_dir = "results"
-    model_dir = os.path.join(base_results_dir, args.model, dataset_name)
+    dataset_dir_path = os.path.join(base_results_dir, args.model, dataset_name)
+    
+    # Generate versioned run name
+    run_name = get_versioned_run_name(dataset_dir_path, args.epochs, args.batch_size)
+    
+    model_dir = os.path.join(dataset_dir_path, run_name)
     output_dir = os.path.join(model_dir, "model")
     results_dir = os.path.join(model_dir, "training_logs")
     
@@ -416,6 +452,7 @@ def train(args):
         "model_type": args.model,
         "model_name": config['name'],
         "base_model": base_model,
+        "run_name": run_name,
         "dataset_name": dataset_name,
         "dataset_source": args.dataset_dir or args.dataset,
         "trained_at": datetime.now().isoformat(),
@@ -443,8 +480,8 @@ def train(args):
     print(f"  - Training logs: {results_dir}/")
     print(f"  - Training info: {model_dir}/training_info.json")
     print("\nNext steps:")
-    print(f"  1. Run 'python evaluate.py --model {args.model} --dataset_dir {args.dataset_dir or args.dataset}' for detailed metrics")
-    print(f"  2. Run 'python inference.py --model {args.model} --test' to test inference")
+    print(f"  1. Run 'python evaluate.py --model {args.model} --checkpoint {output_dir}' for detailed metrics")
+    print(f"  2. Run 'python inference.py --model {args.model} --checkpoint {output_dir} --test' to test inference")
 
 
 # Optimized parameters per model (used when --model all)
@@ -543,8 +580,14 @@ def train_kfold(args):
         dataset_name = os.path.splitext(os.path.basename(args.dataset))[0]
     
     # Create output directories
+    # Structure: results/{model}/{dataset}/{e{epochs}_b{batch}_kfold{n}_v{version}}/
     base_results_dir = "results"
-    model_dir = os.path.join(base_results_dir, args.model, f"{dataset_name}_kfold{n_folds}")
+    dataset_dir_path = os.path.join(base_results_dir, args.model, dataset_name)
+    
+    # Generate versioned run name with kfold info
+    run_name = get_versioned_run_name(dataset_dir_path, args.epochs, batch_size, kfold=n_folds)
+    
+    model_dir = os.path.join(dataset_dir_path, run_name)
     os.makedirs(model_dir, exist_ok=True)
     
     # Setup
