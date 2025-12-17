@@ -508,13 +508,20 @@ def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None,
     results = {
         "timestamp": datetime.now().isoformat(),
         "test_size": len(test_df),
+        "dataset_name": dataset_name,
+        "run_folders": run_folders if run_folders else "auto (latest)",
         "models_compared": model_names,
         "metrics": all_metrics,
         "category_wins": wins
     }
     
-    output_file = "evaluation_results/model_comparison.json"
+    # Create versioned output filename
     os.makedirs("evaluation_results", exist_ok=True)
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Build filename
+    output_file = f"evaluation_results/comparison_{timestamp_str}.json"
+    
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=2)
     
