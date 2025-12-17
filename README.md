@@ -78,7 +78,7 @@ Three transformer models are supported:
 ```bash
 cd models
 
-# Train a single model (uses 5-fold CV by default with optimal params)
+# Train a single model (uses standard train/val/test split by default)
 python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it
 
 # Train all models sequentially (WARNING: long training time!)
@@ -87,24 +87,26 @@ python train.py --model all --dataset_dir ../datasets/gemma-3-27b-it
 # Add more (e.g real) articles to improve generalization
 python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --extra_train ../datasets/train_set_real.json
 
-# Disable k-fold (use standard train/val/test split - faster)
-python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --kfold 0
+# Enable k-fold cross-validation (more robust evaluation, slower)
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --kfold 5
 
 # Override default parameters (optional)
 python train.py --model mdeberta --dataset_dir ../datasets/gemma-3-27b-it --batch_size 8 --learning_rate 5e-6
 
-# Change number of folds
-python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --kfold 10
+# Custom regularization parameters
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --weight_decay 0.05 --warmup_ratio 0.15
 ```
 
 **Training defaults:**
 
-- **K-Fold**: 5 folds (use `--kfold 0` to disable)
+- **K-Fold**: Disabled (use `--kfold N` to enable N-fold cross-validation)
 - **Batch size**: 32 for BERT/UmBERTo, 16 for mDeBERTa
 - **Learning rate**: 2e-5 for BERT/UmBERTo, 1e-5 for mDeBERTa
+- **Weight decay**: 0.01
+- **Warmup ratio**: 0.1
 - **Epochs**: 10
 
-> ⚠️ **Warning**: Using `--model all` with k-fold trains 3 models × 5 folds = 15 training runs. Use `--kfold 0` for faster training.
+> ⚠️ **Warning**: Using `--model all` with k-fold trains 3 models × N folds. This can take a very long time.
 
 > **Note**: The training script supports both the old project format (manual labels as boolean columns) and the new format (labels as an array, e.g. `"labels": ["omicidio", "rapina"]`). The format is automatically detected.
 

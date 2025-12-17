@@ -357,8 +357,8 @@ def train(args):
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         num_train_epochs=args.epochs,
-        weight_decay=0.01,
-        warmup_ratio=0.1,
+        weight_decay=args.weight_decay,
+        warmup_ratio=args.warmup_ratio,
         load_best_model_at_end=True,
         metric_for_best_model="f1_macro",
         greater_is_better=True,
@@ -388,6 +388,8 @@ def train(args):
     print(f"  Epochs: {args.epochs}")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Learning rate: {args.learning_rate}")
+    print(f"  Weight decay: {args.weight_decay}")
+    print(f"  Warmup ratio: {args.warmup_ratio}")
     print(f"  Early stopping patience: {args.patience}")
     print(f"  Device: {device}")
     print("="*60 + "\n")
@@ -420,6 +422,8 @@ def train(args):
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
+        "weight_decay": args.weight_decay,
+        "warmup_ratio": args.warmup_ratio,
         "patience": args.patience,
         "train_samples": len(encoded_dataset["train"]),
         "val_samples": len(encoded_dataset["validation"]),
@@ -663,8 +667,8 @@ def train_kfold(args):
             per_device_train_batch_size=batch_size,
             per_device_eval_batch_size=batch_size,
             num_train_epochs=args.epochs,
-            weight_decay=0.01,
-            warmup_ratio=0.1,
+            weight_decay=args.weight_decay,
+            warmup_ratio=args.warmup_ratio,
             load_best_model_at_end=True,
             metric_for_best_model="f1_macro",
             greater_is_better=True,
@@ -774,8 +778,12 @@ def main():
                         help='Early stopping patience (default: 2)')
     parser.add_argument('--extra_train', type=str, default=None,
                         help='Path to additional training data file (e.g., real articles from train_set_real.json)')
-    parser.add_argument('--kfold', '-k', type=int, default=5,
-                        help='Number of folds for k-fold cross-validation (default: 5)')
+    parser.add_argument('--kfold', '-k', type=int, default=0,
+                        help='Number of folds for k-fold cross-validation. Use 0 for standard train/val/test split (default: 0)')
+    parser.add_argument('--weight_decay', '-wd', type=float, default=0.01,
+                        help='Weight decay for AdamW optimizer (default: 0.01)')
+    parser.add_argument('--warmup_ratio', '-wr', type=float, default=0.1,
+                        help='Warmup ratio for learning rate scheduler (default: 0.1)')
     
     args = parser.parse_args()
     
