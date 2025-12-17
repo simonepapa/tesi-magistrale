@@ -838,11 +838,19 @@ def main():
     args.custom_batch_size = args.batch_size is not None
     args.custom_learning_rate = args.learning_rate is not None
     
-    # Set defaults if not specified
-    if args.batch_size is None:
-        args.batch_size = 32  # Default for single model training
-    if args.learning_rate is None:
-        args.learning_rate = 2e-5  # Default for single model training
+    # Set defaults based on model-specific optimal parameters
+    if args.model != 'all':
+        optimal = MODEL_OPTIMAL_PARAMS.get(args.model, {})
+        if args.batch_size is None:
+            args.batch_size = optimal.get('batch_size', 32)
+        if args.learning_rate is None:
+            args.learning_rate = optimal.get('learning_rate', 2e-5)
+    else:
+        # For --model all, use generic defaults (will be overridden per model in train_all_models)
+        if args.batch_size is None:
+            args.batch_size = 32
+        if args.learning_rate is None:
+            args.learning_rate = 2e-5
     
     if args.kfold and args.kfold > 0:
         # K-Fold Cross-Validation mode
