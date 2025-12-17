@@ -50,20 +50,25 @@ def check_gpu():
         return torch.device("cpu")
 
 
-def get_versioned_run_name(base_dir: str, epochs: int, batch_size: int, kfold: int = 0) -> str:
+def get_versioned_run_name(base_dir: str, epochs: int, batch_size: int, kfold: int = 0, extra_train: str = None) -> str:
     """Generate a versioned run name based on epochs, batch size, and existing versions.
     
     :param base_dir: str: Base directory where runs are stored (e.g., results/bert/gemma-3-27b-it)
     :param epochs: int: Number of training epochs
     :param batch_size: int: Batch size used for training
     :param kfold: int: Number of k-fold splits (0 for standard training)
-    :returns: str: Versioned run name (e.g., 'e10_b32_v1' or 'e10_b32_kfold5_v1')
+    :param extra_train: str: Path to extra training data file (optional)
+    :returns: str: Versioned run name (e.g., 'e10_b32_v1' or 'e10_b32+extra_v1')
     """
     # Build base pattern
     if kfold > 0:
         base_pattern = f"e{epochs}_b{batch_size}_kfold{kfold}"
     else:
         base_pattern = f"e{epochs}_b{batch_size}"
+    
+    # Add extra training indicator
+    if extra_train:
+        base_pattern += "+extra"
     
     # Find existing versions
     version = 1
@@ -336,7 +341,7 @@ def train(args):
     dataset_dir_path = os.path.join(base_results_dir, args.model, dataset_name)
     
     # Generate versioned run name
-    run_name = get_versioned_run_name(dataset_dir_path, args.epochs, args.batch_size)
+    run_name = get_versioned_run_name(dataset_dir_path, args.epochs, args.batch_size, extra_train=args.extra_train)
     
     model_dir = os.path.join(dataset_dir_path, run_name)
     output_dir = os.path.join(model_dir, "model")
@@ -455,6 +460,8 @@ def train(args):
         "run_name": run_name,
         "dataset_name": dataset_name,
         "dataset_source": args.dataset_dir or args.dataset,
+        "extra_train": args.extra_train if args.extra_train else None,
+        "extra_train_name": os.path.basename(args.extra_train) if args.extra_train else None,
         "trained_at": datetime.now().isoformat(),
         "epochs": args.epochs,
         "batch_size": args.batch_size,
@@ -585,7 +592,7 @@ def train_kfold(args):
     dataset_dir_path = os.path.join(base_results_dir, args.model, dataset_name)
     
     # Generate versioned run name with kfold info
-    run_name = get_versioned_run_name(dataset_dir_path, args.epochs, batch_size, kfold=n_folds)
+    run_name = get_versioned_run_name(dataset_dir_path, args.epochs, batch_size, kfold=n_folds, extra_train=args.extra_train)
     
     model_dir = os.path.join(dataset_dir_path, run_name)
     os.makedirs(model_dir, exist_ok=True)
