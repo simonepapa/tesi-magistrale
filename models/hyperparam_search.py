@@ -485,18 +485,12 @@ def main():
                         help='Number of trials for random/bayesian search (default: 10)')
     parser.add_argument('--quick', '-q', action='store_true',
                         help='Use quick grid for grid search (fewer combinations)')
-    parser.add_argument('--output', '-o', type=str, default=None,
-                        help='Output file for results (default: {method}_search_results.json)')
     
     args = parser.parse_args()
     
     # Validate
     if not args.dataset and not args.dataset_dir:
         parser.error("You must specify either --dataset or --dataset_dir")
-    
-    # Default output filename
-    if args.output is None:
-        args.output = f"{args.method}_search_results.json"
     
     # Setup
     device = check_gpu()
@@ -553,23 +547,47 @@ def main():
             print(f"  F1 Micro:    {best['metrics']['f1_micro']:.4f}")
             print(f"  Accuracy:    {best['metrics']['accuracy']:.4f}")
     
-    # Save results
-    output = {
-        'timestamp': datetime.now().isoformat(),
-        'method': args.method,
-        'epochs_per_config': args.epochs,
-        'n_trials': args.n_trials if args.method != 'grid' else len(results),
-        'search_space': SEARCH_SPACE if args.method != 'grid' else (QUICK_GRID_PARAMS if args.quick else GRID_PARAMS),
-        'all_results': all_results,
-        'best_configs': {k: v for k, v in best_configs.items()}
-    }
+    # Create output directory with versioned naming
+    # Structure: results/{model}/{dataset}/hypersearch_{method}_{timestamp}/
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    with open(args.output, 'w', encoding='utf-8') as f:
-        json.dump(output, f, indent=2, default=str)
+    # Extract dataset name
+    if args.dataset_dir:
+        dataset_name = os.path.basename(os.path.normpath(args.dataset_dir))
+    else:
+        dataset_name = os.path.splitext(os.path.basename(args.dataset))[0]
+    
+    # Build extra suffix
+    extra_suffix = "+extra" if args.extra_train else ""
+    
+    # Save results per model
+    for model_name in models:
+        output_dir = os.path.join("results", model_name, dataset_name, f"hypersearch_{args.method}{extra_suffix}_{timestamp_str}")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Prepare output data
+        output = {
+            'timestamp': datetime.now().isoformat(),
+            'method': args.method,
+            'model': model_name,
+            'dataset_name': dataset_name,
+            'dataset_source': args.dataset_dir or args.dataset,
+            'extra_train': args.extra_train if args.extra_train else None,
+            'extra_train_name': os.path.basename(args.extra_train) if args.extra_train else None,
+            'epochs_per_config': args.epochs,
+            'n_trials': args.n_trials if args.method != 'grid' else len(all_results.get(model_name, [])),
+            'search_space': SEARCH_SPACE if args.method != 'grid' else (QUICK_GRID_PARAMS if args.quick else GRID_PARAMS),
+            'all_results': all_results.get(model_name, []),
+            'best_config': best_configs.get(model_name, None)
+        }
+        
+        output_file = os.path.join(output_dir, "search_results.json")
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(output, f, indent=2, default=str)
+        
+        print(f"\n{model_name}: Results saved to: {output_dir}/")
     
     print(f"\n{'='*60}")
-    print(f"Results saved to: {args.output}")
-    print("=" * 60)
     
     # Print command to retrain with best config
     if best_configs:
