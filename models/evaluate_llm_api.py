@@ -239,7 +239,8 @@ def load_test_set(test_file: str) -> pd.DataFrame:
 
 
 def evaluate_llm(model, test_df: pd.DataFrame, few_shot: bool = False,
-                 rate_limit_delay: float = 0.5, save_predictions: bool = True) -> Dict:
+                 rate_limit_delay: float = 0.5, save_predictions: bool = True,
+                 max_chars: int = None) -> Dict:
     """Run full evaluation on test set.
     
     :param model: GenerativeModel instance
@@ -262,6 +263,11 @@ def evaluate_llm(model, test_df: pd.DataFrame, few_shot: bool = False,
     
     for idx, row in tqdm(test_df.iterrows(), total=len(test_df), desc="Classifying"):
         text = row['content']
+        
+        # Truncate if max_chars specified
+        if max_chars and len(text) > max_chars:
+            text = text[:max_chars] + "..."
+        
         true_labels = row['labels'] if isinstance(row['labels'], list) else []
         
         # Classify
@@ -376,6 +382,8 @@ def main():
                         help='Delay between API calls in seconds (default: 0.5)')
     parser.add_argument('--limit', '-l', type=int, default=None,
                         help='Limit number of articles to evaluate (for testing)')
+    parser.add_argument('--max_chars', type=int, default=None,
+                        help='Max characters per article (truncate to reduce tokens)')
     parser.add_argument('--output', '-o', type=str, default=None,
                         help='Output file for results (default: auto-generated)')
     
@@ -395,9 +403,11 @@ def main():
     # Create model
     model = create_model(args.model)
     print(f"Using model: {args.model}")
+    if args.max_chars:
+        print(f"Truncating articles to {args.max_chars} chars")
     
     # Evaluate
-    results = evaluate_llm(model, test_df, args.few_shot, args.delay)
+    results = evaluate_llm(model, test_df, args.few_shot, args.delay, max_chars=args.max_chars)
     
     # Print results
     print_results(results, args.model, args.few_shot)
@@ -430,8 +440,8 @@ def main():
     print("COMPARISON WITH FINE-TUNED MODELS")
     print("=" * 60)
     print(f"\nGemini {args.model} F1 Macro: {results['metrics']['f1_macro']:.4f}")
-    print("\nTo compare, run:")
-    print(f"  python compare_models.py --mode full --test_file {args.test_file} --dataset_models gemma-3-27b-it")
+    print("\nTo compare with fine-tuned models, run:")
+    print(f"  python compare_models.py --mode full --test_file {args.test_file} --dataset_models gemma-3-27b-it --llm_results {args.output}")
 
 
 if __name__ == "__main__":
