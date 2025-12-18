@@ -403,10 +403,41 @@ def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10,
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+def load_llm_results(llm_results_file: str, llm_name: str) -> Tuple[Dict, np.ndarray]:
+    """Load LLM results from JSON file.
+    
+    :param llm_results_file: str: Path to LLM results JSON
+    :param llm_name: str: Display name for the LLM
+    :returns: Tuple of (metrics dict, predictions array or None)
+    """
+    if not llm_results_file or not os.path.exists(llm_results_file):
+        return None, None
+    
+    print(f"\nLoading LLM results from: {llm_results_file}")
+    with open(llm_results_file, 'r', encoding='utf-8') as f:
+        llm_data = json.load(f)
+    
+    llm_metrics = llm_data.get('metrics', {})
+    
+    # Convert per_class_f1 to expected format
+    per_class = llm_metrics.get('per_class_f1', {})
+    for label in LABELS:
+        llm_metrics[f'f1_{label}'] = per_class.get(label, 0.0)
+    
+    # Load binary predictions if available
+    preds = None
+    if 'binary_predictions' in llm_data:
+        preds = np.array(llm_data['binary_predictions'])
+        print(f"Added {llm_name} with predictions for agreement analysis")
+    else:
+        print(f"Added {llm_name} (no predictions for agreement)")
+    
+    return llm_metrics, preds
+
 
 def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None, 
                         test_file: str = None, dataset_name: str = None, run_folders: Dict[str, str] = None,
-                        llm_results_file: str = None):
+                        llm_api_file: str = None, llm_local_file: str = None):
     """Run full evaluation on test set for all specified models.
 
     :param models_to_compare: List[str]: models to compare
@@ -439,29 +470,19 @@ def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None,
         all_metrics[config['name']] = metrics
         all_preds[config['name']] = preds
     
-    # Add LLM results if provided
-    if llm_results_file and os.path.exists(llm_results_file):
-        print(f"\nLoading LLM results from: {llm_results_file}")
-        with open(llm_results_file, 'r', encoding='utf-8') as f:
-            llm_data = json.load(f)
-        
-        llm_name = "LLM"  # Short name for table display
-        llm_metrics = llm_data.get('metrics', {})
-        
-        # Convert per_class_f1 to expected format
-        per_class = llm_metrics.get('per_class_f1', {})
-        for label in LABELS:
-            llm_metrics[f'f1_{label}'] = per_class.get(label, 0.0)
-        
-        all_metrics[llm_name] = llm_metrics
-        
-        # Load binary predictions for agreement analysis if available
-        if 'binary_predictions' in llm_data:
-            all_preds[llm_name] = np.array(llm_data['binary_predictions'])
-            print(f"Added LLM with predictions for agreement analysis")
-        else:
-            all_preds[llm_name] = None
-            print(f"Added LLM (no predictions for agreement)")
+    # Add LLM API results if provided
+    if llm_api_file:
+        metrics, preds = load_llm_results(llm_api_file, "LLM-API")
+        if metrics:
+            all_metrics["LLM-API"] = metrics
+            all_preds["LLM-API"] = preds
+    
+    # Add LLM Local results if provided
+    if llm_local_file:
+        metrics, preds = load_llm_results(llm_local_file, "LLM-Local")
+        if metrics:
+            all_metrics["LLM-Local"] = metrics
+            all_preds["LLM-Local"] = preds
     
     # Create comparison table
     print("\n" + "="*60)
@@ -588,8 +609,12 @@ def main():
                         help='Run folder for mDeBERTa model (e.g. e10_b16_v1)')
     parser.add_argument('--umberto_run', type=str, default=None,
                         help='Run folder for UmBERTo model (e.g. e10_b32_v1)')
+    parser.add_argument('--llm_api', type=str, default=None,
+                        help='Path to LLM API results JSON (from evaluate_llm_api.py)')
+    parser.add_argument('--llm_local', type=str, default=None,
+                        help='Path to LLM Local results JSON (from evaluate_llm_local.py)')
     parser.add_argument('--llm_results', type=str, default=None,
-                        help='Path to LLM evaluation results JSON (from evaluate_llm_api.py)')
+                        help='[Deprecated] Use --llm_api or --llm_local instead')
     
     args = parser.parse_args()
     
@@ -633,7 +658,9 @@ def main():
     elif args.mode == "sample":
         run_sample_comparison(models_to_compare, args.samples, args.dataset, args.test_file, args.dataset_models, run_folders)
     elif args.mode == "evaluate" or args.mode == "full":
-        run_full_evaluation(models_to_compare, args.dataset, args.test_file, args.dataset_models, run_folders, args.llm_results)
+        # Handle legacy --llm_results argument
+        llm_api = args.llm_api or args.llm_results
+        run_full_evaluation(models_to_compare, args.dataset, args.test_file, args.dataset_models, run_folders, llm_api, args.llm_local)
 
 
 if __name__ == "__main__":

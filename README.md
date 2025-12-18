@@ -178,7 +178,8 @@ Arguments:
 - `--bert_run`: Run folder for BERT model (e.g., `e10_b32_v1`).
 - `--mdeberta_run`: Run folder for mDeBERTa model (e.g., `e10_b16_v1`).
 - `--umberto_run`: Run folder for UmBERTo model (e.g., `e10_b32_v1`).
-- `--llm_results`: Path to LLM evaluation results JSON (from `evaluate_llm_api.py`), to include LLM in comparison.
+- `--llm_api`: Path to LLM API results JSON (from `evaluate_llm_api.py`).
+- `--llm_local`: Path to LLM Local results JSON (from `evaluate_llm_local.py`).
 
 ### LLM Evaluation (API-based)
 
@@ -191,16 +192,39 @@ python evaluate_llm_api.py --test_file ../datasets/test_set.json --model gemma-3
 # Few-shot classification
 python evaluate_llm_api.py --test_file ../datasets/test_set.json --model gemma-3-27b-it --few_shot
 
-# Quick test with limited articles
-python evaluate_llm_api.py --test_file ../datasets/test_set.json --limit 100 --few_shot
-
-# Compare LLM with fine-tuned models
-python compare_models.py --mode full --test_file ../datasets/test_set.json \
-    --dataset_models gemma-3-27b-it \
-    --llm_results evaluation_results/llm_gemma-3-27b-it_fewshot_TIMESTAMP.json
+# With article truncation (reduces token usage)
+python evaluate_llm_api.py --test_file ../datasets/test_set.json --few_shot --max_chars 2000
 ```
 
-Available models: `gemma-3-27b-it`, `gemma-3-12b-it`, `gemma-3-4b-it`, `gemma-3-2b-it`, `gemma-3-1b-it`
+Available API models: `gemma-3-27b-it`, `gemma-3-12b-it`, `gemma-3-4b-it`, `gemma-3-2b-it`, `gemma-3-1b-it`
+
+### LLM Evaluation (Local via Ollama)
+
+Evaluate LLM locally without API limits or content filters:
+
+```bash
+# Prerequisites: Install Ollama and pull a model
+ollama pull gemma3:12b
+
+# Run evaluation
+python evaluate_llm_local.py --test_file ../datasets/test_set.json --few_shot
+
+# With different model
+python evaluate_llm_local.py --test_file ../datasets/test_set.json --model gemma3:12b --few_shot
+
+# List recommended models
+python evaluate_llm_local.py --list_models
+```
+
+### Compare All Models (including LLMs)
+
+```bash
+# Compare fine-tuned models with both LLM API and Local
+python compare_models.py --mode full --test_file ../datasets/test_set.json \
+    --dataset_models gemma-3-27b-it \
+    --llm_api evaluation_results/llm_gemma-3-27b-it_fewshot_*.json \
+    --llm_local evaluation_results/llm_local_gemma3-12b_fewshot_*.json
+```
 
 ### Hyperparameter Search
 
