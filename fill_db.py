@@ -163,9 +163,9 @@ def main():
     
     args = parser.parse_args()
     
-    print("="*60)
+    
     print("FILL DATABASE")
-    print("="*60)
+    
     
     # Create database (if not exists)
     create_database(args.output)
@@ -219,9 +219,7 @@ def main():
         fill_database(json_path, args.output, model_name=args.model, 
                      clear_existing=not args.append)
     
-    print("\n" + "="*60)
     print("DATABASE POPULATED!")
-    print("="*60)
     print(f"\nFile: {args.output}")
 
 

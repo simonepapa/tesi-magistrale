@@ -14,22 +14,22 @@ A multi-label classification system for Italian news articles, specifically desi
 │
 ├── models/                      # ML models for crime classification
 │   ├── config.py                # Shared configuration
-│   ├── train.py                 # Unified training script
+│   ├── train.py                 # Unified training script (standard, k-fold, two-phase)
 │   ├── evaluate.py              # Model evaluation
 │   ├── inference.py             # Inference with text chunking
 │   ├── label_quartieri.py       # Pipeline to label all neighborhoods
 │   ├── compare_models.py        # Model comparison
-│   └── extract_streets.py       # Street name extraction
+│   ├── extract_streets.py       # Street name extraction
+│   └── results/                 # Training results (auto-generated)
+│       ├── bert/
+│       │   └── xyz/             # Results for BERT on xyz dataset
+│       │       ├── e10_b32_v1/          # Standard training run
+│       │       └── two_phase_e10+5_b32_v1/  # Two-phase training run
+│       ├── mdeberta/
+│       └── umberto/
 │
 ├── datasets/                    # Generated and realistic datasets
 │   └── xyz/                     # Dataset generated with xyz
-│
-├── results/                     # Training results (auto-generated)
-│   ├── bert/
-│   │   └── xyz/                 # Results for BERT on xyz dataset
-│   │       └── e10_b32_v1/      # Versioned run (epochs, batch, version)
-│   ├── mdeberta/
-│   └── umberto/
 │
 ├── BERTMAN/                     # Web application
 │   ├── frontend/                # React frontend
@@ -76,40 +76,77 @@ Three transformer models are supported:
 
 ### Training
 
+The unified `train.py` supports three training modes:
+
+#### Standard Training
+
 ```bash
 cd models
 
-# Train a single model (uses standard train/val/test split by default)
+# Train a single model
 python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it
 
-# Train all models sequentially (WARNING: long training time!)
+# Train all models sequentially
 python train.py --model all --dataset_dir ../datasets/gemma-3-27b-it
 
-# Add more (e.g real) articles to improve generalization
+# Add extra articles (mixed into training)
 python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --extra_train ../datasets/train_set_real.json
-
-# Enable k-fold cross-validation (more robust evaluation, slower)
-python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --kfold 5
-
-# Override default parameters (optional)
-python train.py --model mdeberta --dataset_dir ../datasets/gemma-3-27b-it --batch_size 8 --learning_rate 5e-6
-
-# Custom regularization parameters
-python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --weight_decay 0.05 --warmup_ratio 0.15
 ```
 
-**Training defaults:**
+#### Two-Phase Training (Recommended for Real Data)
 
-- **K-Fold**: Disabled (use `--kfold N` to enable N-fold cross-validation)
-- **Batch size**: 32 for BERT/UmBERTo, 16 for mDeBERTa
-- **Learning rate**: 2e-5 for BERT/UmBERTo, 1e-5 for mDeBERTa
-- **Weight decay**: 0.01
-- **Warmup ratio**: 0.1
-- **Epochs**: 10
+Two-phase training first trains on synthetic data, then fine-tunes on real data with a lower learning rate. This approach improves generalization to real-world articles and converges more easily than extra training:
 
-> ⚠️ **Warning**: Using `--model all` with k-fold trains 3 models × N folds. This can take a very long time.
+```bash
+# Two-phase training: synthetic, then real
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it \
+    --two_phase --real_data ../datasets/train_set_real.json
 
-> **Note**: The training script supports both the old project format (manual labels as boolean columns) and the new format (labels as an array, e.g. `"labels": ["omicidio", "rapina"]`). The format is automatically detected.
+# All models with two-phase
+python train.py --model all --dataset_dir ../datasets/gemma-3-27b-it \
+    --two_phase --real_data ../datasets/train_set_real.json
+
+# Custom phase 2 parameters
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it \
+    --two_phase --real_data ../datasets/train_set_real.json \
+    --epochs_phase2 3 --phase2_lr 1e-6
+```
+
+**Two-phase output structure:**
+
+```
+models/results/bert/gemma-3-27b-it/two_phase_e10+5_b32_v1/
+├── phase1_model/        # Model after Phase 1 (synthetic only)
+├── phase2_model/        # Final model (use this!)
+├── phase1_logs/         # Training logs Phase 1
+├── phase2_logs/         # Training logs Phase 2
+└── training_info.json   # Full training configuration
+```
+
+#### K-Fold Cross-Validation
+
+```bash
+# 5-fold cross-validation
+python train.py --model bert --dataset_dir ../datasets/gemma-3-27b-it --kfold 5
+```
+
+#### Training Parameters
+
+| Parameter               | Default        | Description                              |
+| ----------------------- | -------------- | ---------------------------------------- |
+| `--epochs`              | 10             | Training epochs (Phase 1 for two-phase)  |
+| `--batch_size`          | Model-specific | 32 for BERT/UmBERTo, 16 for mDeBERTa     |
+| `--learning_rate`       | Model-specific | 2e-5 for BERT/UmBERTo, 1e-5 for mDeBERTa |
+| `--weight_decay`        | 0.01           | AdamW weight decay                       |
+| `--warmup_ratio`        | 0.1            | Learning rate warmup                     |
+| `--patience`            | 2              | Early stopping patience                  |
+| `--epochs_phase2`       | 5              | Epochs for Phase 2 (two-phase only)      |
+| `--phase2_lr`           | 2e-6           | Learning rate for Phase 2 (10x lower)    |
+| `--warmup_ratio_phase2` | 0.2            | Warmup for Phase 2                       |
+
+> ⚠️ **Warning**: Using `--model all` trains 3 models sequentially. With k-fold, this becomes 3 × N folds.
+
+> **Note**: The training script auto-detects label format (boolean columns vs. array format).
 
 ### Evaluation
 
@@ -135,8 +172,11 @@ python evaluate.py --model all --dataset_dir ../datasets/gemma-3-27b-it --datase
 # Test inference with sample text
 python inference.py --model bert --test
 
-# Test with a specific trained checkpoint
-python inference.py --model bert --checkpoint results/bert/gemma-3-27b-it/model --test
+# Use a specific trained checkpoint (standard training)
+python inference.py --model bert --checkpoint results/bert/gemma-3-27b-it/e10_b32_v1/model --test
+
+# Use a two-phase trained model (use phase2_model)
+python inference.py --model bert --checkpoint results/bert/gemma-3-27b-it/two_phase_e10+5_b32_v1/phase2_model --test
 
 # Label articles from a JSON file
 python inference.py --model bert --input data/articles.json --output data/labeled.json
@@ -173,13 +213,15 @@ python compare_models.py --mode quick --dataset_models gemma-3-27b-it --bert_run
 Arguments:
 
 - `--mode`: `quick` (sample text), `sample` (10 random articles), `evaluate` or `full` (full test set evaluation).
-- `--dataset_models`: Name of the dataset folder in `results/` where trained models are located.
+- `--dataset_models`: Name of the dataset folder in `models/results/` where trained models are located.
 - `--test_file`: Path to the test set JSON file.
-- `--bert_run`: Run folder for BERT model (e.g., `e10_b32_v1`).
-- `--mdeberta_run`: Run folder for mDeBERTa model (e.g., `e10_b16_v1`).
-- `--umberto_run`: Run folder for UmBERTo model (e.g., `e10_b32_v1`).
+- `--bert_run`: Run folder for BERT model (e.g., `e10_b32_v1` or `two_phase_e10+5_b32_v1`).
+- `--mdeberta_run`: Run folder for mDeBERTa model.
+- `--umberto_run`: Run folder for UmBERTo model.
 - `--llm_api`: Path to LLM API results JSON (from `evaluate_llm_api.py`).
 - `--llm_local`: Path to LLM Local results JSON (from `evaluate_llm_local.py`).
+
+> **Note**: For two-phase trained models, `compare_models.py` automatically uses `phase2_model/` when available.
 
 ### LLM Evaluation (API-based)
 

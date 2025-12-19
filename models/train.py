@@ -3,11 +3,23 @@ Model Training
 ==============
 Unified training script for all models (BERT, mDeBERTa, UmBERTo).
 
+Supports:
+- Standard training with train/val/test split
+- K-Fold cross-validation
+- Two-phase training for domain adaptation (synthetic → real)
+
 Usage:
-    python train.py --model bert --dataset dataset.json
+    # Standard training
     python train.py --model bert --dataset_dir datasets/gemma-3-27b-it
-    python train.py --model mdeberta --epochs 5 --batch_size 16
-    python train.py --model umberto --dataset_dir datasets/gemma-3-27b-it --learning_rate 1e-5
+    
+    # Two-phase training (recommended for real data)
+    python train.py --model bert --dataset_dir datasets/gemma-3-27b-it --two_phase --real_data datasets/train_set_real.json
+    
+    # K-fold cross-validation
+    python train.py --model bert --dataset_dir datasets/gemma-3-27b-it --kfold 5
+    
+    # Train all models
+    python train.py --model all --dataset_dir datasets/gemma-3-27b-it
 """
 
 import os
@@ -33,11 +45,17 @@ from transformers import (
 from config import LABELS, id2label, label2id, get_model_config, get_available_models
 
 
+# Get the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Results are saved in models/results/
+RESULTS_BASE_DIR = os.path.join(SCRIPT_DIR, "results")
+
+
 def check_gpu():
     """Check GPU availability and print info."""
-    print("="*60)
+    
     print("GPU CHECK")
-    print("="*60)
+    
     
     if torch.cuda.is_available():
         gpu_name = torch.cuda.get_device_name(0)
@@ -50,31 +68,36 @@ def check_gpu():
         return torch.device("cpu")
 
 
-def get_versioned_run_name(base_dir: str, epochs: int, batch_size: int, kfold: int = 0, extra_train: str = None) -> str:
-    """Generate a versioned run name based on epochs, batch size, and existing versions.
+def get_versioned_run_name(base_dir: str, epochs: int, batch_size: int, 
+                           kfold: int = 0, extra_train: str = None, 
+                           two_phase: bool = False, epochs_phase2: int = 0) -> str:
+    """Generate a versioned run name based on training configuration.
     
-    :param base_dir: str: Base directory where runs are stored (e.g., results/bert/gemma-3-27b-it)
-    :param epochs: int: Number of training epochs
+    :param base_dir: str: Base directory where runs are stored
+    :param epochs: int: Number of training epochs (phase 1 for two-phase)
     :param batch_size: int: Batch size used for training
     :param kfold: int: Number of k-fold splits (0 for standard training)
     :param extra_train: str: Path to extra training data file (optional)
-    :returns: str: Versioned run name (e.g., 'e10_b32_v1' or 'e10_b32+extra_v1')
+    :param two_phase: bool: Whether this is a two-phase training run
+    :param epochs_phase2: int: Number of epochs for phase 2 (two-phase only)
+    :returns: str: Versioned run name
     """
     # Build base pattern
-    if kfold > 0:
+    if two_phase:
+        base_pattern = f"two_phase_e{epochs}+{epochs_phase2}_b{batch_size}"
+    elif kfold > 0:
         base_pattern = f"e{epochs}_b{batch_size}_kfold{kfold}"
     else:
         base_pattern = f"e{epochs}_b{batch_size}"
     
-    # Add extra training indicator
-    if extra_train:
+    # Add extra training indicator (only for non-two-phase)
+    if extra_train and not two_phase:
         base_pattern += "+extra"
     
     # Find existing versions
     version = 1
     if os.path.exists(base_dir):
         existing_dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
-        # Find all matching patterns and extract version numbers
         for d in existing_dirs:
             if d.startswith(base_pattern + "_v"):
                 try:
@@ -141,16 +164,30 @@ def convert_labels_format(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_dataset(path: str = None, folder: str = None, test_file: str = None, extra_train: str = None, test_size: float = 0.1, val_size: float = 0.1):
+def ensure_content_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure the DataFrame has a 'content' column.
+    
+    :param df: pd.DataFrame: DataFrame with articles
+    :returns: pd.DataFrame: DataFrame with 'content' column
+    """
+    if 'contenuto' in df.columns and 'content' not in df.columns:
+        df['content'] = df['contenuto']
+    if 'content' not in df.columns:
+        raise ValueError("Dataset must have a 'content' column with article text")
+    return df
+
+
+def load_dataset(path: str = None, folder: str = None, test_file: str = None, 
+                 extra_train: str = None, test_size: float = 0.1, val_size: float = 0.1):
     """Load and prepare the dataset with train/val/test splits.
 
     :param path: str: Path to the dataset JSON file (optional if folder is provided).
     :param folder: str: Path to folder containing JSON files (optional if path is provided).
     :param test_file: str: Optional path to a separate test set file.
     :param extra_train: str: Optional path to additional training data (e.g., real articles).
-    :param test_size: float: Proportion of the dataset to include in the test split. (Default value = 0.1)
-    :param val_size: float: Proportion of the dataset to include in the validation split. (Default value = 0.1)
-
+    :param test_size: float: Proportion of the dataset to include in the test split.
+    :param val_size: float: Proportion of the dataset to include in the validation split.
+    :returns: Tuple of (DatasetDict, available_labels)
     """
     # Load data from folder or file
     if folder:
@@ -163,13 +200,15 @@ def load_dataset(path: str = None, folder: str = None, test_file: str = None, ex
     else:
         raise ValueError("Either 'path' or 'folder' must be provided")
     
+    # Convert labels format if needed
+    df = convert_labels_format(df)
+    
     # Load extra training data if provided
     if extra_train and os.path.exists(extra_train):
         print(f"Loading extra training data from: {extra_train}")
         with open(extra_train, 'r', encoding='utf-8') as f:
             extra_articles = json.load(f)
         print(f"  Loaded {len(extra_articles)} extra articles")
-        # Combine with main dataset
         extra_df = pd.DataFrame(extra_articles)
         extra_df = convert_labels_format(extra_df)
         df = pd.concat([df, extra_df], ignore_index=True)
@@ -181,9 +220,6 @@ def load_dataset(path: str = None, folder: str = None, test_file: str = None, ex
         print(f"Loading separate test set from: {test_file}")
         df_test_separate = pd.read_json(test_file)
         df_test_separate = convert_labels_format(df_test_separate)
-    
-    # Convert labels format if needed
-    df = convert_labels_format(df)
     
     # Shuffle
     df = df.sample(frac=1.0, random_state=42)
@@ -199,21 +235,13 @@ def load_dataset(path: str = None, folder: str = None, test_file: str = None, ex
         print(f"  {label}: {count}")
     
     # Ensure content column exists
-    def ensure_content(dframe):
-        if 'contenuto' in dframe.columns and 'content' not in dframe.columns:
-            dframe['content'] = dframe['contenuto']
-        if 'content' not in dframe.columns:
-            raise ValueError("Dataset must have a 'content' column with article text")
-        return dframe
-
-    df = ensure_content(df)
+    df = ensure_content_column(df)
     if df_test_separate is not None:
-        df_test_separate = ensure_content(df_test_separate)
+        df_test_separate = ensure_content_column(df_test_separate)
     
     # Create one-hot labels
     df['one_hot_labels'] = df[available_labels].values.tolist()
     if df_test_separate is not None:
-        # Create one-hot labels for test set (using same available labels)
         for label in available_labels:
             if label not in df_test_separate.columns:
                 df_test_separate[label] = 0
@@ -226,21 +254,14 @@ def load_dataset(path: str = None, folder: str = None, test_file: str = None, ex
     
     # Split logic
     if df_test_separate is not None:
-        # If separate test set is provided:
-        # 1. Use the separate file as Test Set
         df_test = df_test_separate
-        
-        # 2. Split the main dataset into Train (90%) and Val (10%)
-        # Note: val_size is roughly 0.1
         df_train, df_val = train_test_split(
             df, test_size=val_size, random_state=42, shuffle=True
         )
     else:
-        # Standard split: Train+Val vs Test
         df_trainval, df_test = train_test_split(
             df, test_size=test_size, random_state=42, shuffle=True
         )
-        # Then Train vs Val
         df_train, df_val = train_test_split(
             df_trainval, test_size=val_size/(1-test_size), random_state=42, shuffle=True
         )
@@ -267,7 +288,6 @@ def preprocess_data(examples, tokenizer):
 
     :param examples: HuggingFace Dataset
     :param tokenizer: HuggingFace Tokenizer
-
     """
     text = examples["content"]
     encoding = tokenizer(text, padding="max_length", truncation=True, max_length=512)
@@ -280,8 +300,7 @@ def multi_label_metrics(predictions, labels, threshold=0.5):
 
     :param predictions: numpy array of model predictions
     :param labels: numpy array of true labels
-    :param threshold: threshold for binary classification (Default value = 0.5)
-
+    :param threshold: threshold for binary classification
     """
     sigmoid = torch.nn.Sigmoid()
     probs = sigmoid(torch.Tensor(predictions))
@@ -312,19 +331,24 @@ def compute_metrics(p: EvalPrediction):
     """Compute metrics for Trainer.
 
     :param p: EvalPrediction: HuggingFace EvalPrediction object
-
     """
     preds = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
     return multi_label_metrics(predictions=preds, labels=p.label_ids)
 
 
-def train(args):
-    """Main training function.
+# Optimized parameters per model
+MODEL_OPTIMAL_PARAMS = {
+    'bert': {'batch_size': 32, 'learning_rate': 2e-5},
+    'mdeberta': {'batch_size': 16, 'learning_rate': 1e-5},
+    'umberto': {'batch_size': 32, 'learning_rate': 2e-5}
+}
+
+
+def train_standard(args):
+    """Standard training function (single phase).
 
     :param args: argparse.Namespace: command line arguments
-
     """
-    
     config = get_model_config(args.model)
     base_model = config['base_model']
     
@@ -332,16 +356,16 @@ def train(args):
     if args.dataset_dir:
         dataset_name = os.path.basename(os.path.normpath(args.dataset_dir))
     else:
-        # Extract from filename
         dataset_name = os.path.splitext(os.path.basename(args.dataset))[0]
     
     # Create organized output directories
-    # Structure: results/{model}/{dataset}/{e{epochs}_b{batch}_v{version}}/
-    base_results_dir = "results"
-    dataset_dir_path = os.path.join(base_results_dir, args.model, dataset_name)
+    dataset_dir_path = os.path.join(RESULTS_BASE_DIR, args.model, dataset_name)
     
     # Generate versioned run name
-    run_name = get_versioned_run_name(dataset_dir_path, args.epochs, args.batch_size, extra_train=args.extra_train)
+    run_name = get_versioned_run_name(
+        dataset_dir_path, args.epochs, args.batch_size, 
+        extra_train=args.extra_train
+    )
     
     model_dir = os.path.join(dataset_dir_path, run_name)
     output_dir = os.path.join(model_dir, "model")
@@ -407,7 +431,8 @@ def train(args):
         logging_dir=f"{results_dir}/logs",
         logging_steps=50,
         save_total_limit=2,
-        dataloader_num_workers=0,  # Windows compatibility
+        dataloader_num_workers=0,
+        report_to="none"
     )
     
     # Create trainer
@@ -422,9 +447,9 @@ def train(args):
     )
     
     # Train
-    print("\n" + "="*60)
+    
     print(f"STARTING TRAINING - {config['name']}")
-    print("="*60)
+    
     print(f"  Model: {base_model}")
     print(f"  Epochs: {args.epochs}")
     print(f"  Batch size: {args.batch_size}")
@@ -438,9 +463,9 @@ def train(args):
     train_result = trainer.train()
     
     # Evaluate on test set
-    print("\n" + "="*60)
+    
     print("EVALUATING ON TEST SET")
-    print("="*60)
+    
     
     test_results = trainer.evaluate(encoded_dataset["test"])
     print(f"\nTest Results:")
@@ -458,10 +483,10 @@ def train(args):
         "model_name": config['name'],
         "base_model": base_model,
         "run_name": run_name,
+        "training_mode": "standard",
         "dataset_name": dataset_name,
         "dataset_source": args.dataset_dir or args.dataset,
         "extra_train": args.extra_train if args.extra_train else None,
-        "extra_train_name": os.path.basename(args.extra_train) if args.extra_train else None,
         "trained_at": datetime.now().isoformat(),
         "epochs": args.epochs,
         "batch_size": args.batch_size,
@@ -479,89 +504,338 @@ def train(args):
     with open(f"{model_dir}/training_info.json", "w") as f:
         json.dump(training_info, f, indent=2)
     
-    print("\n" + "="*60)
+    
     print("TRAINING COMPLETE!")
-    print("="*60)
+    
     print(f"\nResults saved to: {model_dir}/")
     print(f"  - Model: {output_dir}/")
     print(f"  - Training logs: {results_dir}/")
     print(f"  - Training info: {model_dir}/training_info.json")
-    print("\nNext steps:")
-    print(f"  1. Run 'python evaluate.py --model {args.model} --checkpoint {output_dir}' for detailed metrics")
-    print(f"  2. Run 'python inference.py --model {args.model} --checkpoint {output_dir} --test' to test inference")
-
-
-# Optimized parameters per model (used when --model all)
-MODEL_OPTIMAL_PARAMS = {
-    'bert': {'batch_size': 32, 'learning_rate': 2e-5},
-    'mdeberta': {'batch_size': 16, 'learning_rate': 1e-5},
-    'umberto': {'batch_size': 32, 'learning_rate': 2e-5}
-}
-
-
-def train_all_models(args):
-    """Train all models sequentially with optimized parameters.
     
+    return training_info
+
+
+def train_two_phase(args):
+    """Two-phase training for domain adaptation (synthetic → real).
+
     :param args: argparse.Namespace: command line arguments
     """
-    models = get_available_models()
-    total_models = len(models)
+    config = get_model_config(args.model)
+    base_model = config['base_model']
     
-    print("="*60)
-    print("TRAINING ALL MODELS")
-    print("="*60)
-    print(f"\nModels to train: {', '.join(models)}")
-    print(f"Dataset: {args.dataset_dir or args.dataset}")
-    print(f"Epochs: {args.epochs}")
-    print("="*60)
+    # Extract dataset name from synthetic path
+    dataset_name = os.path.basename(os.path.normpath(args.dataset_dir))
     
-    results_summary = {}
+    # Create output directories
+    dataset_dir_path = os.path.join(RESULTS_BASE_DIR, args.model, dataset_name)
     
-    for i, model_name in enumerate(models, 1):
-        print(f"\n{'#'*60}")
-        print(f"# [{i}/{total_models}] Training {model_name.upper()}")
-        print(f"{'#'*60}")
-        
-        # Use optimal parameters for this model (unless user specified custom values)
-        optimal = MODEL_OPTIMAL_PARAMS.get(model_name, {})
-        
-        # Create a copy of args with model-specific parameters
-        model_args = argparse.Namespace(**vars(args))
-        model_args.model = model_name
-        
-        # Use user-specified values if provided, otherwise use optimal defaults
-        if not args.custom_batch_size:
-            model_args.batch_size = optimal.get('batch_size', args.batch_size)
-        if not args.custom_learning_rate:
-            model_args.learning_rate = optimal.get('learning_rate', args.learning_rate)
-        
-        print(f"\nParameters for {model_name}:")
-        print(f"  - Batch size: {model_args.batch_size}")
-        print(f"  - Learning rate: {model_args.learning_rate}")
-        
-        try:
-            train(model_args)
-            results_summary[model_name] = "SUCCESS"
-        except Exception as e:
-            print(f"\nERROR training {model_name}: {e}")
-            results_summary[model_name] = f"FAILED: {str(e)}"
-        
-        # Clear GPU memory between models
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+    # Generate versioned run name
+    run_name = get_versioned_run_name(
+        dataset_dir_path, args.epochs, args.batch_size,
+        two_phase=True, epochs_phase2=args.epochs_phase2
+    )
     
-    # Final summary
-    print("\n" + "="*60)
-    print("ALL MODELS TRAINING COMPLETE!")
-    print("="*60)
-    print("\nSummary:")
-    for model_name, status in results_summary.items():
-        print(f"  {model_name}: {status}")
-    print("\nResults saved to:")
-    for model_name in models:
-        if results_summary.get(model_name) == "SUCCESS":
-            dataset_name = os.path.basename(os.path.normpath(args.dataset_dir)) if args.dataset_dir else os.path.splitext(os.path.basename(args.dataset))[0]
-            print(f"  - results/{model_name}/{dataset_name}/")
+    model_dir = os.path.join(dataset_dir_path, run_name)
+    phase1_output_dir = os.path.join(model_dir, "phase1_model")
+    phase2_output_dir = os.path.join(model_dir, "phase2_model")
+    phase1_logs_dir = os.path.join(model_dir, "phase1_logs")
+    phase2_logs_dir = os.path.join(model_dir, "phase2_logs")
+    
+    # Setup
+    device = check_gpu()
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(phase1_output_dir, exist_ok=True)
+    os.makedirs(phase2_output_dir, exist_ok=True)
+    os.makedirs(phase1_logs_dir, exist_ok=True)
+    os.makedirs(phase2_logs_dir, exist_ok=True)
+    
+    print(f"\nOutput directory: {model_dir}")
+    os.environ["WANDB_DISABLED"] = "true"
+    
+    # PHASE 1: Train on Synthetic Data
+    
+    print("PHASE 1: TRAINING ON SYNTHETIC DATA")
+    
+    
+    # Load tokenizer and model
+    print(f"\nLoading model: {base_model} ({config['name']})")
+    tokenizer = AutoTokenizer.from_pretrained(
+        base_model, 
+        use_fast=config['use_fast_tokenizer']
+    )
+    model = AutoModelForSequenceClassification.from_pretrained(
+        base_model,
+        problem_type="multi_label_classification",
+        num_labels=len(LABELS),
+        id2label=id2label,
+        label2id=label2id
+    )
+    model.to(device)
+    
+    # Load phase 1 dataset (synthetic only - no extra_train)
+    dataset_p1, available_labels = load_dataset(
+        folder=args.dataset_dir,
+        test_file=args.test_file
+    )
+    
+    print("\nTokenizing Phase 1 dataset...")
+    encoded_dataset_p1 = dataset_p1.map(
+        lambda x: preprocess_data(x, tokenizer),
+        batched=True,
+        remove_columns=dataset_p1['train'].column_names
+    )
+    encoded_dataset_p1.set_format("torch")
+    
+    # Phase 1 training arguments
+    training_args_p1 = TrainingArguments(
+        output_dir=phase1_logs_dir,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        learning_rate=args.learning_rate,
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        num_train_epochs=args.epochs,
+        weight_decay=args.weight_decay,
+        warmup_ratio=args.warmup_ratio,
+        load_best_model_at_end=True,
+        metric_for_best_model="f1_macro",
+        greater_is_better=True,
+        fp16=torch.cuda.is_available(),
+        logging_dir=f"{phase1_logs_dir}/logs",
+        logging_steps=50,
+        save_total_limit=2,
+        dataloader_num_workers=0,
+        report_to="none"
+    )
+    
+    # Phase 1 trainer
+    trainer_p1 = Trainer(
+        model=model,
+        args=training_args_p1,
+        train_dataset=encoded_dataset_p1["train"],
+        eval_dataset=encoded_dataset_p1["validation"],
+        processing_class=tokenizer,
+        compute_metrics=compute_metrics,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
+    )
+    
+    # Train Phase 1
+    print(f"\n{'='*60}")
+    print(f"PHASE 1 TRAINING - {config['name']}")
+    print(f"{'='*60}")
+    print(f"  Model: {base_model}")
+    print(f"  Epochs: {args.epochs}")
+    print(f"  Batch size: {args.batch_size}")
+    print(f"  Learning rate: {args.learning_rate}")
+    print(f"  Device: {device}")
+    print("="*60 + "\n")
+    
+    trainer_p1.train()
+    
+    # Evaluate Phase 1 on test set
+    
+    print("PHASE 1 EVALUATION ON TEST SET")
+    
+    
+    phase1_test_results = trainer_p1.evaluate(encoded_dataset_p1["test"])
+    print(f"\nPhase 1 Test Results:")
+    for key, value in phase1_test_results.items():
+        print(f"  {key}: {value:.4f}")
+    
+    # Save Phase 1 model
+    print(f"\nSaving Phase 1 model to {phase1_output_dir}...")
+    trainer_p1.save_model(phase1_output_dir)
+    tokenizer.save_pretrained(phase1_output_dir)
+    
+    # =========================================================================
+    # PHASE 2: Fine-tune on Real Data
+    # =========================================================================
+    
+    print("PHASE 2: FINE-TUNING ON REAL DATA")
+    
+    
+    # Load Phase 2 dataset (real data)
+    print(f"\nLoading real data from: {args.real_data}")
+    with open(args.real_data, 'r', encoding='utf-8') as f:
+        real_articles = json.load(f)
+    print(f"Loaded {len(real_articles)} real articles")
+    
+    df_real = pd.DataFrame(real_articles)
+    df_real = convert_labels_format(df_real)
+    df_real = df_real.sample(frac=1.0, random_state=42)
+    
+    # Show label distribution
+    print("\nLabel distribution (Phase 2 - Real):")
+    for label in available_labels:
+        if label in df_real.columns:
+            count = df_real[label].sum()
+            print(f"  {label}: {count}")
+    
+    df_real = ensure_content_column(df_real)
+    
+    # Create one-hot labels
+    for label in available_labels:
+        if label not in df_real.columns:
+            df_real[label] = 0
+    df_real['one_hot_labels'] = df_real[available_labels].values.tolist()
+    df_real = df_real[['content', 'one_hot_labels']]
+    
+    # Split real data
+    df_train_p2, df_val_p2 = train_test_split(
+        df_real, test_size=0.15, random_state=42, shuffle=True
+    )
+    
+    print(f"\nPhase 2 dataset splits:")
+    print(f"  Train: {len(df_train_p2)} samples")
+    print(f"  Val:   {len(df_val_p2)} samples")
+    
+    # Convert to HuggingFace datasets
+    dataset_p2 = DatasetDict({
+        "train": Dataset.from_pandas(df_train_p2, preserve_index=False),
+        "validation": Dataset.from_pandas(df_val_p2, preserve_index=False)
+    })
+    
+    print("\nTokenizing Phase 2 dataset...")
+    encoded_dataset_p2 = dataset_p2.map(
+        lambda x: preprocess_data(x, tokenizer),
+        batched=True,
+        remove_columns=dataset_p2['train'].column_names
+    )
+    encoded_dataset_p2.set_format("torch")
+    
+    # Phase 2 uses a LOWER learning rate for domain adaptation
+    phase2_lr = args.phase2_lr
+    
+    # Phase 2 training arguments
+    training_args_p2 = TrainingArguments(
+        output_dir=phase2_logs_dir,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        learning_rate=phase2_lr,
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        num_train_epochs=args.epochs_phase2,
+        weight_decay=args.weight_decay,
+        warmup_ratio=args.warmup_ratio_phase2,
+        load_best_model_at_end=True,
+        metric_for_best_model="f1_macro",
+        greater_is_better=True,
+        fp16=torch.cuda.is_available(),
+        logging_dir=f"{phase2_logs_dir}/logs",
+        logging_steps=50,
+        save_total_limit=2,
+        dataloader_num_workers=0,
+        report_to="none"
+    )
+    
+    # Phase 2 trainer (uses the model from Phase 1)
+    trainer_p2 = Trainer(
+        model=model,  # Continues from Phase 1
+        args=training_args_p2,
+        train_dataset=encoded_dataset_p2["train"],
+        eval_dataset=encoded_dataset_p2["validation"],
+        processing_class=tokenizer,
+        compute_metrics=compute_metrics,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
+    )
+    
+    # Train Phase 2
+    print(f"\n{'='*60}")
+    print(f"PHASE 2 TRAINING - {config['name']}")
+    print(f"{'='*60}")
+    print(f"  Epochs: {args.epochs_phase2}")
+    print(f"  Batch size: {args.batch_size}")
+    print(f"  Learning rate: {phase2_lr} (reduced for domain adaptation)")
+    print(f"  Warmup ratio: {args.warmup_ratio_phase2}")
+    print(f"  Device: {device}")
+    print("="*60 + "\n")
+    
+    trainer_p2.train()
+    
+    # Evaluate Phase 2
+    
+    print("PHASE 2 EVALUATION")
+    
+    
+    # Evaluate on Phase 2 validation (real data)
+    phase2_val_results = trainer_p2.evaluate(encoded_dataset_p2["validation"])
+    print(f"\nPhase 2 Validation (Real Data):")
+    for key, value in phase2_val_results.items():
+        print(f"  {key}: {value:.4f}")
+    
+    # Evaluate on Phase 1 test set (synthetic - to check retention)
+    phase2_test_results = trainer_p2.evaluate(encoded_dataset_p1["test"])
+    print(f"\nPhase 2 Test (Synthetic Data - checking retention):")
+    for key, value in phase2_test_results.items():
+        print(f"  {key}: {value:.4f}")
+    
+    # Save Phase 2 model (final model)
+    print(f"\nSaving Phase 2 model (final) to {phase2_output_dir}...")
+    trainer_p2.save_model(phase2_output_dir)
+    tokenizer.save_pretrained(phase2_output_dir)
+    
+    # Save Training Summary
+    training_info = {
+        "model_type": args.model,
+        "model_name": config['name'],
+        "base_model": base_model,
+        "run_name": run_name,
+        "training_mode": "two_phase",
+        "dataset_name": dataset_name,
+        "synthetic_source": args.dataset_dir,
+        "real_data_source": args.real_data,
+        "trained_at": datetime.now().isoformat(),
+        "phase1": {
+            "epochs": args.epochs,
+            "learning_rate": args.learning_rate,
+            "batch_size": args.batch_size,
+            "warmup_ratio": args.warmup_ratio,
+            "train_samples": len(encoded_dataset_p1["train"]),
+            "val_samples": len(encoded_dataset_p1["validation"]),
+            "test_samples": len(encoded_dataset_p1["test"]),
+            "test_results": {k: float(v) for k, v in phase1_test_results.items()}
+        },
+        "phase2": {
+            "epochs": args.epochs_phase2,
+            "learning_rate": phase2_lr,
+            "batch_size": args.batch_size,
+            "warmup_ratio": args.warmup_ratio_phase2,
+            "train_samples": len(encoded_dataset_p2["train"]),
+            "val_samples": len(encoded_dataset_p2["validation"]),
+            "val_results_real": {k: float(v) for k, v in phase2_val_results.items()},
+            "test_results_synthetic": {k: float(v) for k, v in phase2_test_results.items()}
+        },
+        "labels": LABELS
+    }
+    
+    with open(f"{model_dir}/training_info.json", "w") as f:
+        json.dump(training_info, f, indent=2)
+    
+    # Summary
+    
+    print("TWO-PHASE TRAINING COMPLETE!")
+    
+    
+    print("\n📊 RESULTS COMPARISON:")
+    print("-"*60)
+    print(f"{'Metric':<25} {'Phase 1':<15} {'Phase 2':<15} {'Change':<15}")
+    print("-"*60)
+    
+    for metric in ['eval_f1_macro', 'eval_f1_micro', 'eval_accuracy']:
+        p1_val = phase1_test_results.get(metric, 0)
+        p2_val = phase2_test_results.get(metric, 0)
+        change = p2_val - p1_val
+        change_str = f"{change:+.4f}" if change != 0 else "0.0000"
+        print(f"{metric:<25} {p1_val:<15.4f} {p2_val:<15.4f} {change_str:<15}")
+    
+    print("-"*60)
+    
+    print(f"\n📁 Results saved to: {model_dir}/")
+    print(f"  - Phase 1 Model: {phase1_output_dir}/")
+    print(f"  - Phase 2 Model (Final): {phase2_output_dir}/")
+    print(f"  - Training Info: {model_dir}/training_info.json")
+    
+    return training_info
 
 
 def train_kfold(args):
@@ -587,12 +861,13 @@ def train_kfold(args):
         dataset_name = os.path.splitext(os.path.basename(args.dataset))[0]
     
     # Create output directories
-    # Structure: results/{model}/{dataset}/{e{epochs}_b{batch}_kfold{n}_v{version}}/
-    base_results_dir = "results"
-    dataset_dir_path = os.path.join(base_results_dir, args.model, dataset_name)
+    dataset_dir_path = os.path.join(RESULTS_BASE_DIR, args.model, dataset_name)
     
     # Generate versioned run name with kfold info
-    run_name = get_versioned_run_name(dataset_dir_path, args.epochs, batch_size, kfold=n_folds, extra_train=args.extra_train)
+    run_name = get_versioned_run_name(
+        dataset_dir_path, args.epochs, batch_size, 
+        kfold=n_folds, extra_train=args.extra_train
+    )
     
     model_dir = os.path.join(dataset_dir_path, run_name)
     os.makedirs(model_dir, exist_ok=True)
@@ -642,10 +917,7 @@ def train_kfold(args):
     print(f"\nAvailable labels: {len(available_labels)}/{len(LABELS)}")
     
     # Ensure content column exists
-    if 'contenuto' in df.columns and 'content' not in df.columns:
-        df['content'] = df['contenuto']
-    if 'content' not in df.columns:
-        raise ValueError("Dataset must have a 'content' column with article text")
+    df = ensure_content_column(df)
     
     # Create one-hot labels
     df['one_hot_labels'] = df[available_labels].values.tolist()
@@ -778,6 +1050,7 @@ def train_kfold(args):
         'model': args.model,
         'n_folds': n_folds,
         'dataset': dataset_name,
+        'training_mode': 'kfold',
         'fold_metrics': fold_metrics,
         'average_metrics': {
             'f1_macro': avg_f1_macro,
@@ -800,46 +1073,152 @@ def train_kfold(args):
     print(f"\nResults saved to: {model_dir}/")
 
 
-
+def train_all_models(args):
+    """Train all models sequentially with optimized parameters.
+    
+    :param args: argparse.Namespace: command line arguments
+    """
+    models = get_available_models()
+    total_models = len(models)
+    
+    
+    print("TRAINING ALL MODELS")
+    
+    print(f"\nModels to train: {', '.join(models)}")
+    print(f"Dataset: {args.dataset_dir or args.dataset}")
+    print(f"Training mode: {'two_phase' if args.two_phase else 'standard'}")
+    print(f"Epochs: {args.epochs}")
+    
+    
+    results_summary = {}
+    
+    for i, model_name in enumerate(models, 1):
+        print(f"\n{'#'*60}")
+        print(f"# [{i}/{total_models}] Training {model_name.upper()}")
+        print(f"{'#'*60}")
+        
+        # Use optimal parameters for this model
+        optimal = MODEL_OPTIMAL_PARAMS.get(model_name, {})
+        
+        # Create a copy of args with model-specific parameters
+        model_args = argparse.Namespace(**vars(args))
+        model_args.model = model_name
+        
+        # Use user-specified values if provided, otherwise use optimal defaults
+        if not args.custom_batch_size:
+            model_args.batch_size = optimal.get('batch_size', args.batch_size)
+        if not args.custom_learning_rate:
+            model_args.learning_rate = optimal.get('learning_rate', args.learning_rate)
+            # For two-phase, also adjust phase2_lr
+            if args.two_phase:
+                model_args.phase2_lr = model_args.learning_rate / 10
+        
+        print(f"\nParameters for {model_name}:")
+        print(f"  - Batch size: {model_args.batch_size}")
+        print(f"  - Learning rate: {model_args.learning_rate}")
+        
+        try:
+            if args.two_phase:
+                train_two_phase(model_args)
+            else:
+                train_standard(model_args)
+            results_summary[model_name] = "SUCCESS"
+        except Exception as e:
+            print(f"\nERROR training {model_name}: {e}")
+            results_summary[model_name] = f"FAILED: {str(e)}"
+        
+        # Clear GPU memory between models
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    
+    # Final summary
+    
+    print("ALL MODELS TRAINING COMPLETE!")
+    
+    print("\nSummary:")
+    for model_name, status in results_summary.items():
+        print(f"  {model_name}: {status}")
 
 
 def main():
     """Main function to parse command line arguments and run training."""
     parser = argparse.ArgumentParser(
         description="Unified training script for crime classification models",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Standard training
+    python train.py --model bert --dataset_dir datasets/gemma-3-27b-it
+    
+    # Two-phase training (synthetic → real)
+    python train.py --model bert --dataset_dir datasets/gemma-3-27b-it --two_phase --real_data datasets/train_set_real.json
+    
+    # K-fold cross-validation
+    python train.py --model bert --dataset_dir datasets/gemma-3-27b-it --kfold 5
+    
+    # Train all models with two-phase
+    python train.py --model all --dataset_dir datasets/gemma-3-27b-it --two_phase --real_data datasets/train_set_real.json
+        """
     )
+    
+    # Model selection
     parser.add_argument('--model', '-m', type=str, default='bert',
                         choices=get_available_models() + ['all'],
                         help='Model to train, or "all" to train all models (default: bert)')
+    
+    # Dataset arguments
     parser.add_argument('--dataset', '-d', type=str, default=None,
                         help='Path to a single dataset JSON file')
     parser.add_argument('--dataset_dir', type=str, default=None,
                         help='Path to folder containing JSON files (alternative to --dataset)')
     parser.add_argument('--test_file', type=str, default=None,
                         help='Path to a separate test set JSON file (optional)')
+    parser.add_argument('--extra_train', type=str, default=None,
+                        help='Path to additional training data (for standard training)')
+    
+    # Two-phase training arguments
+    parser.add_argument('--two_phase', action='store_true',
+                        help='Enable two-phase training (synthetic → real)')
+    parser.add_argument('--real_data', type=str, default=None,
+                        help='Path to real data JSON file (required for --two_phase)')
+    parser.add_argument('--epochs_phase2', type=int, default=5,
+                        help='Number of epochs for Phase 2 (default: 5)')
+    parser.add_argument('--phase2_lr', type=float, default=2e-6,
+                        help='Learning rate for Phase 2 (default: 2e-6)')
+    parser.add_argument('--warmup_ratio_phase2', type=float, default=0.2,
+                        help='Warmup ratio for Phase 2 (default: 0.2)')
+    
+    # Training hyperparameters
     parser.add_argument('--epochs', '-e', type=int, default=10,
                         help='Number of training epochs (default: 10)')
     parser.add_argument('--batch_size', '-b', type=int, default=None,
                         help='Batch size (default: optimized per model)')
     parser.add_argument('--learning_rate', '-lr', type=float, default=None,
                         help='Learning rate (default: optimized per model)')
+    parser.add_argument('--weight_decay', '-wd', type=float, default=0.01,
+                        help='Weight decay (default: 0.01)')
+    parser.add_argument('--warmup_ratio', '-wr', type=float, default=0.1,
+                        help='Warmup ratio (default: 0.1)')
     parser.add_argument('--patience', '-p', type=int, default=2,
                         help='Early stopping patience (default: 2)')
-    parser.add_argument('--extra_train', type=str, default=None,
-                        help='Path to additional training data file (e.g., real articles from train_set_real.json)')
+    
+    # K-fold arguments
     parser.add_argument('--kfold', '-k', type=int, default=0,
-                        help='Number of folds for k-fold cross-validation. Use 0 for standard train/val/test split (default: 0)')
-    parser.add_argument('--weight_decay', '-wd', type=float, default=0.01,
-                        help='Weight decay for AdamW optimizer (default: 0.01)')
-    parser.add_argument('--warmup_ratio', '-wr', type=float, default=0.1,
-                        help='Warmup ratio for learning rate scheduler (default: 0.1)')
+                        help='Number of folds for k-fold CV. Use 0 for standard split (default: 0)')
     
     args = parser.parse_args()
     
-    # Validate dataset arguments
+    # Validate arguments
     if not args.dataset and not args.dataset_dir:
         parser.error("You must specify either --dataset or --dataset_dir")
+    
+    if args.two_phase:
+        if not args.real_data:
+            parser.error("--real_data is required when using --two_phase")
+        if not os.path.exists(args.real_data):
+            parser.error(f"Real data file not found: {args.real_data}")
+        if args.kfold > 0:
+            parser.error("Cannot combine --two_phase with --kfold")
     
     # Track if user specified custom values
     args.custom_batch_size = args.batch_size is not None
@@ -853,48 +1232,42 @@ def main():
         if args.learning_rate is None:
             args.learning_rate = optimal.get('learning_rate', 2e-5)
     else:
-        # For --model all, use generic defaults (will be overridden per model in train_all_models)
         if args.batch_size is None:
             args.batch_size = 32
         if args.learning_rate is None:
             args.learning_rate = 2e-5
     
+    # Run appropriate training mode
     if args.kfold and args.kfold > 0:
         # K-Fold Cross-Validation mode
         if args.model == 'all':
-            # Train all models with k-fold
-            print("=" * 60)
+            
             print(f"TRAINING ALL MODELS WITH {args.kfold}-FOLD CROSS-VALIDATION")
-            print("WARNING: This will take a long time!")
-            print("=" * 60)
+            
             models = get_available_models()
             for model_name in models:
-                print(f"\n{'='*60}")
-                print(f"Training {model_name} with {args.kfold}-fold CV")
-                print("=" * 60)
                 args.model = model_name
-                # Reset custom flags for optimal params
                 args.custom_batch_size = False
                 args.custom_learning_rate = False
                 train_kfold(args)
-                # Clear GPU memory
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-            # Reset model to 'all' for summary
             args.model = 'all'
-            print("\n" + "=" * 60)
-            print("ALL MODELS TRAINING COMPLETE!")
-            print("=" * 60)
         else:
             train_kfold(args)
-    else:
-        # Standard training (no k-fold, uses train/val/test split)
+    elif args.two_phase:
+        # Two-phase training mode
         if args.model == 'all':
             train_all_models(args)
         else:
-            train(args)
+            train_two_phase(args)
+    else:
+        # Standard training mode
+        if args.model == 'all':
+            train_all_models(args)
+        else:
+            train_standard(args)
 
 
 if __name__ == "__main__":
     main()
-

@@ -26,9 +26,9 @@ def label_all_quartieri(model_name: str = 'bert'):
     config = get_model_config(model_name)
     output_dir = config['output_dir']
     
-    print("="*60)
+    
     print(f"LABELING QUARTIERI ({config['name']})")
-    print("="*60)
+    
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -77,9 +77,9 @@ def merge_all_files(output_dir: str):
     """
     output_file = f"{output_dir}/merged_file.json"
     
-    print("\n" + "="*60)
+    
     print("MERGING FILES")
-    print("="*60)
+    
     
     json_files = sorted([f for f in os.listdir(output_dir) 
                         if f.startswith("labeled_") and f.endswith('.json')])
@@ -111,9 +111,9 @@ def remove_duplicates(input_file: str, output_dir: str):
     """
     output_file = f"{output_dir}/dataset.json"
     
-    print("\n" + "="*60)
+    
     print("REMOVING DUPLICATES")
-    print("="*60)
+    
     
     with open(input_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -187,9 +187,9 @@ def main():
     # Deduplicate
     final_file = remove_duplicates(merged_file, output_dir)
     
-    print("\n" + "="*60)
+    
     print(f"DONE! ({config['name']})")
-    print("="*60)
+    
     print(f"\nFinal output: {final_file}")
 
 

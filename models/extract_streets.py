@@ -67,9 +67,9 @@ if __name__ == "__main__":
         "Nessun indirizzo in questo testo.",
     ]
     
-    print("="*60)
+    
     print("STREET EXTRACTION TEST")
-    print("="*60)
+    
     
     for text in test_texts:
         print(f"\nText: {text[:60]}...")

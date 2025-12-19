@@ -37,6 +37,11 @@ from config import LABELS, get_model_config, get_available_models
 from inference import load_model, predict_with_chunking
 
 
+# Get the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Results are in models/results/
+RESULTS_BASE_DIR = os.path.join(SCRIPT_DIR, "results")
+
 def find_checkpoint(model_name: str, dataset_name: str = None, run_folder: str = None) -> str:
     """Find the checkpoint path for a model.
     
@@ -46,10 +51,16 @@ def find_checkpoint(model_name: str, dataset_name: str = None, run_folder: str =
     :returns: str: checkpoint path
     """
     if dataset_name:
-        dataset_path = os.path.join("results", model_name, dataset_name)
+        dataset_path = os.path.join(RESULTS_BASE_DIR, model_name, dataset_name)
         
         # If run_folder specified, use it directly
         if run_folder:
+            # First check for two-phase training (phase2_model)
+            phase2_path = os.path.join(dataset_path, run_folder, "phase2_model")
+            if os.path.exists(phase2_path):
+                print(f"Using checkpoint (two-phase): {phase2_path}")
+                return phase2_path
+            # Then check for standard model folder
             potential_path = os.path.join(dataset_path, run_folder, "model")
             if os.path.exists(potential_path):
                 print(f"Using checkpoint: {potential_path}")
@@ -75,7 +86,7 @@ def find_checkpoint(model_name: str, dataset_name: str = None, run_folder: str =
                 return old_path
             
     # If no specific dataset or not found, check if there's any folder in results/{model}
-    results_base = os.path.join("results", model_name)
+    results_base = os.path.join(RESULTS_BASE_DIR, model_name)
     if os.path.exists(results_base):
         subdirs = [d for d in os.listdir(results_base) if os.path.isdir(os.path.join(results_base, d))]
         if subdirs:
@@ -275,9 +286,9 @@ def run_quick_comparison(models_to_compare: List[str], dataset_name: str = None,
     if run_folders is None:
         run_folders = {}
         
-    print("\n" + "="*60)
+    
     print("QUICK COMPARISON")
-    print("="*60)
+    
     
     # Sample text
     test_text = """
@@ -351,9 +362,9 @@ def run_sample_comparison(models_to_compare: List[str], num_samples: int = 10,
     if run_folders is None:
         run_folders = {}
         
-    print("\n" + "="*60)
+    
     print("SAMPLE COMPARISON")
-    print("="*60)
+    
     
     # Load test data
     test_df = load_test_data(dataset_path, test_file)
@@ -450,9 +461,9 @@ def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None,
     if run_folders is None:
         run_folders = {}
         
-    print("\n" + "="*60)
+    
     print("FULL MODEL EVALUATION")
-    print("="*60)
+    
     
     # Load test data
     print("\nLoading test data...")
@@ -485,9 +496,9 @@ def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None,
             all_preds["LLM-Local"] = preds
     
     # Create comparison table
-    print("\n" + "="*60)
+    
     print("COMPARISON RESULTS")
-    print("="*60)
+    
     
     model_names = list(all_metrics.keys())
     
@@ -575,11 +586,11 @@ def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None,
     print(f"\nResults saved to: {output_file}")
     
     # Determine winner
-    print("\n" + "="*60)
+    
     f1_scores = {m: all_metrics[m]["f1_macro"] for m in model_names}
     best_model = max(f1_scores, key=f1_scores.get)
     print(f"BEST MODEL (F1 Macro): {best_model} ({f1_scores[best_model]:.4f})")
-    print("="*60)
+    
     
     return results
 

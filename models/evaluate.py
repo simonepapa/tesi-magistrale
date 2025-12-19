@@ -424,9 +424,9 @@ def evaluate_single_model(model_name: str, args, dataset_name: str = None):
     config = get_model_config(model_name)
     output_dir = f"evaluation_results_{model_name}"
     
-    print("="*60)
+    
     print(f"MODEL EVALUATION - {config['name']}")
-    print("="*60)
+    
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -495,9 +495,9 @@ def main():
     
     if args.model == 'all':
         # Evaluate all models
-        print("="*60)
+        
         print("EVALUATING ALL MODELS")
-        print("="*60)
+        
         print(f"Models: {available_models}")
         if dataset_name:
             print(f"Dataset: {dataset_name}")
@@ -514,9 +514,9 @@ def main():
                 print()
         
         # Print comparison summary
-        print("="*60)
+        
         print("EVALUATION SUMMARY")
-        print("="*60)
+        
         for model_name, results in all_results.items():
             if results:
                 print(f"\n{model_name}:")
@@ -527,9 +527,9 @@ def main():
         config = get_model_config(args.model)
         output_dir = args.output or f"evaluation_results_{args.model}"
         
-        print("="*60)
+        
         print(f"MODEL EVALUATION - {config['name']}")
-        print("="*60)
+        
         
         os.makedirs(output_dir, exist_ok=True)
         
@@ -561,9 +561,9 @@ def main():
         print(f"\nSaved evaluation results to: {results_path}")
         
         # Summary
-        print("\n" + "="*60)
+        
         print("EVALUATION COMPLETE!")
-        print("="*60)
+        
         print(f"F1 Macro: {results['overall_metrics']['macro_f1']:.4f}")
         print(f"F1 Micro: {results['overall_metrics']['micro_f1']:.4f}")
 

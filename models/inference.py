@@ -239,9 +239,9 @@ def run_test(model_name: str = 'bert', checkpoint: str = None):
     :param checkpoint: str: Custom checkpoint path (Default value = None)
 
     """
-    print("="*60)
+    
     print(f"Testing {model_name.upper()} Crime Classification with Chunking")
-    print("="*60)
+    
     
     model, tokenizer, device, config = load_model(model_name, checkpoint)
     

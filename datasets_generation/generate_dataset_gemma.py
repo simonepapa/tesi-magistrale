@@ -821,15 +821,15 @@ def generate(args):
     streets = load_streets()
     
     # Print configuration
-    print("\n" + "="*60)
+    
     print("DATASET GENERATOR - GEMMA")
-    print("="*60)
+    
     print(f"Type: {args.type}")
     print(f"Output directory: {output_dir}")
     print(f"Model: {MODEL_NAME}")
     print(f"Similarity threshold: {SIMILARITY_THRESHOLD}")
     print(f"Max retries multiplier: {MAX_RETRIES_MULTIPLIER}x")
-    print("="*60)
+    
     
     # Track generated datasets
     crime_data = []
@@ -853,9 +853,9 @@ def generate(args):
         ambiguous_data = generate_ambiguous_news(args.batches_ambiguous, output_dir)
     
     # Print summary
-    print("\n" + "="*60)
+    
     print("GENERATION COMPLETE!")
-    print("="*60)
+    
     total = len(crime_data) + len(non_crime_data) + len(ambiguous_data)
     print(f"Total articles generated: {total}")
     if crime_data:
