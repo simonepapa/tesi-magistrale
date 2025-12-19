@@ -200,24 +200,24 @@ To compare the performance of BERT, mDeBERTa, and UmBERTo:
 # Full comparison on a specific dataset (uses latest available version)
 python compare_models.py --mode full --dataset_models gemma-3-27b-it --test_file ../datasets/test_set.json
 
-# Specify run folder for each model separately
+# Specify run folders
 python compare_models.py --mode full --dataset_models gemma-3-27b-it --test_file ../datasets/test_set.json \
-    --bert_run e10_b32_v1 \
-    --mdeberta_run e8_b16_v1 \
-    --umberto_run e10_b32_v1
+    --run_folders bert=two_phase_e10+5_b32_v1 mdeberta=two_phase_e10+5_b16_v1 umberto=two_phase_e10+5_b32_v1
 
-# Quick comparison with specific runs
-python compare_models.py --mode quick --dataset_models gemma-3-27b-it --bert_run e10_b32_v1
+# Compare only specific models
+python compare_models.py --mode full --models bert,umberto --dataset_models gemma-3-27b-it
+
+# Quick comparison
+python compare_models.py --mode quick --dataset_models gemma-3-27b-it
 ```
 
 Arguments:
 
 - `--mode`: `quick` (sample text), `sample` (10 random articles), `evaluate` or `full` (full test set evaluation).
+- `--models`: Comma-separated list of models to compare (default: all).
 - `--dataset_models`: Name of the dataset folder in `models/results/` where trained models are located.
 - `--test_file`: Path to the test set JSON file.
-- `--bert_run`: Run folder for BERT model (e.g., `e10_b32_v1` or `two_phase_e10+5_b32_v1`).
-- `--mdeberta_run`: Run folder for mDeBERTa model.
-- `--umberto_run`: Run folder for UmBERTo model.
+- `--run_folders`: Run folders in format `model=folder` (e.g., `bert=two_phase_e10+5_b32_v1`).
 - `--llm_api`: Path to LLM API results JSON (from `evaluate_llm_api.py`).
 - `--llm_local`: Path to LLM Local results JSON (from `evaluate_llm_local.py`).
 

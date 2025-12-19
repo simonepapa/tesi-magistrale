@@ -42,6 +42,21 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Results are in models/results/
 RESULTS_BASE_DIR = os.path.join(SCRIPT_DIR, "results")
 
+
+def get_relative_path(absolute_path: str) -> str:
+    """Convert an absolute path to a relative path from the current working directory.
+    
+    This avoids issues with non-ASCII characters in absolute paths (e.g., 'à' in 'Università')
+    that cause problems with sentencepiece.
+    
+    :param absolute_path: str: The absolute path
+    :returns: str: Relative path from CWD
+    """
+    try:
+        return os.path.relpath(absolute_path)
+    except ValueError:
+        return absolute_path
+
 def find_checkpoint(model_name: str, dataset_name: str = None, run_folder: str = None) -> str:
     """Find the checkpoint path for a model.
     
@@ -59,12 +74,12 @@ def find_checkpoint(model_name: str, dataset_name: str = None, run_folder: str =
             phase2_path = os.path.join(dataset_path, run_folder, "phase2_model")
             if os.path.exists(phase2_path):
                 print(f"Using checkpoint (two-phase): {phase2_path}")
-                return phase2_path
+                return get_relative_path(phase2_path)
             # Then check for standard model folder
             potential_path = os.path.join(dataset_path, run_folder, "model")
             if os.path.exists(potential_path):
                 print(f"Using checkpoint: {potential_path}")
-                return potential_path
+                return get_relative_path(potential_path)
             else:
                 print(f"Warning: Run folder '{run_folder}' not found for {model_name}, searching for alternatives...")
         
@@ -78,12 +93,12 @@ def find_checkpoint(model_name: str, dataset_name: str = None, run_folder: str =
                 potential_path = os.path.join(dataset_path, subdir, "model")
                 if os.path.exists(potential_path):
                     print(f"Using checkpoint: {potential_path}")
-                    return potential_path
+                    return get_relative_path(potential_path)
             
             # Fallback: old structure results/{model}/{dataset}/model
             old_path = os.path.join(dataset_path, "model")
             if os.path.exists(old_path):
-                return old_path
+                return get_relative_path(old_path)
             
     # If no specific dataset or not found, check if there's any folder in results/{model}
     results_base = os.path.join(RESULTS_BASE_DIR, model_name)
@@ -101,12 +116,12 @@ def find_checkpoint(model_name: str, dataset_name: str = None, run_folder: str =
                     potential_path = os.path.join(dataset_path, run_dir, "model")
                     if os.path.exists(potential_path):
                         print(f"Using checkpoint: {potential_path}")
-                        return potential_path
+                        return get_relative_path(potential_path)
                 
                 # Fallback: old structure
                 old_path = os.path.join(dataset_path, "model")
                 if os.path.exists(old_path):
-                    return old_path
+                    return get_relative_path(old_path)
 
     # Fallback to config default
     return None
@@ -167,19 +182,29 @@ def load_test_data(dataset_path: str = None, test_file: str = None, test_size: f
     return df_test
 
 
-def evaluate_single_model(model_name: str, test_df: pd.DataFrame, dataset_name: str = None, run_folder: str = None) -> Tuple[Dict, np.ndarray, np.ndarray]:
+def evaluate_single_model(model_name: str, test_df: pd.DataFrame, dataset_name: str = None, 
+                          run_folder: str = None, display_name: str = None) -> Tuple[Dict, np.ndarray, np.ndarray]:
     """Evaluate a single model on the test set.
 
-    :param model_name: str: name of the model to evaluate
+    :param model_name: str: name of the model to evaluate (bert, mdeberta, umberto)
     :param test_df: pd.DataFrame: test set
     :param dataset_name: str: dataset name used for training (optional)
     :param run_folder: str: specific run folder for this model (optional)
+    :param display_name: str: custom display name for results (optional, defaults to model name)
 
     """
     config = get_model_config(model_name)
     checkpoint = find_checkpoint(model_name, dataset_name, run_folder)
-    display_name = f"{config['name']} ({'custom' if checkpoint else 'default'})"
-    print(f"\nEvaluating {display_name}...")
+    
+    # Use custom display name if provided, otherwise use model name with run folder
+    if display_name:
+        display_label = display_name
+    elif run_folder:
+        display_label = f"{config['name']} ({run_folder})"
+    else:
+        display_label = f"{config['name']} ({'custom' if checkpoint else 'default'})"
+    
+    print(f"\nEvaluating {display_label}...")
     
     model, tokenizer, device, _ = load_model(model_name, checkpoint)
     
@@ -238,7 +263,7 @@ def evaluate_single_model(model_name: str, test_df: pd.DataFrame, dataset_name: 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     
-    return metrics, y_pred, y_probs
+    return metrics, y_pred, y_probs, display_label
 
 
 def compare_predictions(predictions: Dict[str, Dict], content: str, title: str = None) -> Dict:
@@ -446,40 +471,36 @@ def load_llm_results(llm_results_file: str, llm_name: str) -> Tuple[Dict, np.nda
     return llm_metrics, preds
 
 
-def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None, 
-                        test_file: str = None, dataset_name: str = None, run_folders: Dict[str, str] = None,
+def run_full_evaluation(model_entries: List[Tuple[str, str]], dataset_path: str = None, 
+                        test_file: str = None, dataset_name: str = None,
                         llm_api_file: str = None, llm_local_file: str = None):
     """Run full evaluation on test set for all specified models.
 
-    :param models_to_compare: List[str]: models to compare
+    :param model_entries: List of tuples (model_name, run_folder) - allows same model multiple times
     :param dataset_path: str: path to the full dataset (optional)
     :param test_file: str: separate test file path (optional)
     :param dataset_name: str: dataset name used for training (optional)
-    :param run_folders: Dict[str, str]: mapping of model name to run folder (optional)
+    :param llm_api_file: str: path to LLM API results file
+    :param llm_local_file: str: path to LLM Local results file
 
     """
-    if run_folders is None:
-        run_folders = {}
-        
-    
     print("FULL MODEL EVALUATION")
-    
     
     # Load test data
     print("\nLoading test data...")
     test_df = load_test_data(dataset_path, test_file)
     print(f"Test set size: {len(test_df)} articles")
     
-    # Evaluate each model
+    # Evaluate each model entry
     all_metrics = {}
     all_preds = {}
     
-    for model_name in models_to_compare:
-        run_folder = run_folders.get(model_name)
-        metrics, preds, probs = evaluate_single_model(model_name, test_df, dataset_name, run_folder)
-        config = get_model_config(model_name)
-        all_metrics[config['name']] = metrics
-        all_preds[config['name']] = preds
+    for model_name, run_folder in model_entries:
+        metrics, preds, probs, display_label = evaluate_single_model(
+            model_name, test_df, dataset_name, run_folder
+        )
+        all_metrics[display_label] = metrics
+        all_preds[display_label] = preds
     
     # Add LLM API results if provided
     if llm_api_file:
@@ -496,51 +517,100 @@ def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None,
             all_preds["LLM-Local"] = preds
     
     # Create comparison table
-    
+    # Flush output and add spacing to avoid tqdm overlap
+    import sys
+    sys.stdout.flush()
+    print("\n" * 3)  # Extra spacing after tqdm progress bars
+    print("=" * 80)
     print("COMPARISON RESULTS")
+    print("=" * 80)
     
     
     model_names = list(all_metrics.keys())
     
+    # Create abbreviated names for display
+    def abbreviate_name(name):
+        """Create short name for table display."""
+        if "two_phase" in name:
+            if "mDeBERTa" in name:
+                return "mDeB-TP"
+            elif "UmBERTo" in name:
+                return "UmB-TP"
+            elif "BERT" in name:
+                return "BERT-TP"
+        elif "e10" in name:
+            if "mDeBERTa" in name:
+                return "mDeB-Std"
+            elif "UmBERTo" in name:
+                return "UmB-Std"
+            elif "BERT" in name:
+                return "BERT-Std"
+        # LLM models
+        if "LLM-API" in name:
+            return "LLM-API"
+        if "LLM-Local" in name:
+            return "LLM-Loc"
+        return name[:10]  # Fallback: first 10 chars
+    
+    short_names = {m: abbreviate_name(m) for m in model_names}
+    
     # Main metrics comparison
-    main_metrics = ["f1_micro", "f1_macro", "precision_micro", "recall_micro", 
-                    "roc_auc_micro", "accuracy"]
+    main_metrics = ["f1_macro", "f1_micro", "accuracy", "precision_macro", "recall_macro", "roc_auc_macro"]
     
-    header = f"{'Metric':<20}" + "".join([f"{m:>12}" for m in model_names])
-    print(f"\n{header}")
-    print("-" * (20 + 12 * len(model_names)))
+    print("\n📊 MAIN METRICS:")
+    print("-" * 80)
     
+    # Header with short names (max 10 chars each)
+    header = f"{'Model':<12}"
     for metric in main_metrics:
-        row = f"{metric:<20}"
-        values = [all_metrics[m][metric] for m in model_names]
-        best_val = max(values)
-        
-        for v in values:
-            marker = "*" if v == best_val and values.count(best_val) == 1 else " "
-            row += f"{v:>11.4f}{marker}"
-        
+        metric_short = metric.replace("_macro", "").replace("_micro", "").replace("roc_auc", "AUC")
+        header += f"{metric_short:>10}"
+    print(header)
+    print("-" * 80)
+    
+    # Sort models by f1_macro descending
+    sorted_models = sorted(model_names, key=lambda m: all_metrics[m].get("f1_macro", 0), reverse=True)
+    
+    for model in sorted_models:
+        row = f"{short_names[model]:<12}"
+        for metric in main_metrics:
+            val = all_metrics[model].get(metric, 0)
+            row += f"{val:>10.4f}"
+        # Add star for best model
+        if model == sorted_models[0]:
+            row += " ⭐"
         print(row)
     
-    # Per-class F1 comparison
-    print(f"\n{'─'*60}")
-    print("Per-Class F1 Scores:")
-    print(f"{'─'*60}")
+    print("-" * 80)
+    print(f"\n🏆 Best: {sorted_models[0]} (F1 Macro: {all_metrics[sorted_models[0]]['f1_macro']:.4f})")
     
-    header = f"{'Label':<25}" + "".join([f"{m:>12}" for m in model_names]) + f"{'Best':>10}"
+    # Legend
+    print("\nLegend: TP=Two-Phase, Std=Standard, mDeB=mDeBERTa, UmB=UmBERTo")
+    
+    # Per-class F1 comparison
+    print(f"\n{'─'*80}")
+    print("📋 Per-Class F1 Scores:")
+    print(f"{'─'*80}")
+    
+    # Use shortened names in header
+    header = f"{'Label':<20}"
+    for m in model_names:
+        header += f"{short_names[m]:>10}"
+    header += f"{'Best':>10}"
     print(header)
-    print("-" * (25 + 12 * len(model_names) + 10))
+    print("-" * 80)
     
     wins = {m: 0 for m in model_names}
     
     for label in LABELS:
-        row = f"{label:<25}"
+        row = f"{label:<20}"
         values = {m: all_metrics[m][f"f1_{label}"] for m in model_names}
         best_model = max(values, key=values.get)
         
         for m in model_names:
-            row += f"{values[m]:>12.4f}"
+            row += f"{values[m]:>10.4f}"
         
-        row += f"{best_model:>10}"
+        row += f"{short_names[best_model]:>10}"
         print(row)
         
         # Count wins
@@ -549,25 +619,25 @@ def run_full_evaluation(models_to_compare: List[str], dataset_path: str = None,
         if len(winners) == 1:
             wins[winners[0]] += 1
     
-    print(f"\nCategory wins: " + ", ".join([f"{m}={wins[m]}" for m in model_names]))
+    print(f"\nCategory wins: " + ", ".join([f"{short_names[m]}={wins[m]}" for m in model_names]))
     
     # Agreement analysis (pairwise) - only for models with predictions
     models_with_preds = [m for m in model_names if all_preds.get(m) is not None]
     if len(models_with_preds) >= 2:
-        print(f"\n{'─'*60}")
-        print("Prediction Agreement (pairwise):")
+        print(f"\n{'─'*80}")
+        print("🤝 Prediction Agreement (pairwise):")
         for i, m1 in enumerate(models_with_preds):
             for m2 in models_with_preds[i+1:]:
                 agreement = np.sum(all_preds[m1] == all_preds[m2])
                 total = all_preds[m1].size
-                print(f"  {m1} vs {m2}: {100*agreement/total:.1f}%")
+                print(f"  {short_names[m1]} vs {short_names[m2]}: {100*agreement/total:.1f}%")
     
     # Save results
     results = {
         "timestamp": datetime.now().isoformat(),
         "test_size": len(test_df),
         "dataset_name": dataset_name,
-        "run_folders": run_folders if run_folders else "auto (latest)",
+        "model_entries": [f"{m}/{f}" if f else m for m, f in model_entries],
         "models_compared": model_names,
         "metrics": all_metrics,
         "category_wins": wins
@@ -599,13 +669,25 @@ def main():
     """Main function to run the comparison."""
     parser = argparse.ArgumentParser(
         description="Compare crime classification models",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Compare all models using latest checkpoints
+    python compare_models.py --mode evaluate --dataset_models gemma-3-27b-it --test_file ../datasets/test_set.json
+    
+    # Specify run folders for each model
+    python compare_models.py --mode evaluate --dataset_models gemma-3-27b-it --test_file ../datasets/test_set.json \\
+        --run_folders bert=two_phase_e10+5_b32_v1 mdeberta=two_phase_e10+5_b16_v1
+    
+    # Compare only specific models
+    python compare_models.py --mode evaluate --models bert,umberto --dataset_models gemma-3-27b-it
+        """
     )
     parser.add_argument("--mode", type=str, default="quick",
                         choices=["quick", "sample", "evaluate", "full"],
                         help="Comparison mode (default: quick)")
     parser.add_argument("--models", type=str, default=None,
-                        help="Comma-separated list of models to compare (default: all)")
+                        help="Comma-separated list of models to compare when not using --run_folders (default: all)")
     parser.add_argument("--samples", type=int, default=10,
                         help="Number of samples for sample mode (default: 10)")
     parser.add_argument('--dataset', '-d', type=str, default=None,
@@ -614,12 +696,15 @@ def main():
                         help='Path to a separate test set JSON file (optional)')
     parser.add_argument('--dataset_models', type=str, default=None,
                         help='Name of the dataset used for training (e.g. gemma-3-27b-it) to locate models in results/')
+    parser.add_argument('--run_folders', nargs='*', default=None,
+                        help='Run folders in format: model/folder (e.g. bert/two_phase_e10+5_b32_v1 bert/e10_b32_v1)')
+    # Legacy arguments (kept for backward compatibility)
     parser.add_argument('--bert_run', type=str, default=None,
-                        help='Run folder for BERT model (e.g. e10_b32_v1)')
+                        help='[Legacy] Run folder for BERT model. Use --run_folders instead.')
     parser.add_argument('--mdeberta_run', type=str, default=None,
-                        help='Run folder for mDeBERTa model (e.g. e10_b16_v1)')
+                        help='[Legacy] Run folder for mDeBERTa model. Use --run_folders instead.')
     parser.add_argument('--umberto_run', type=str, default=None,
-                        help='Run folder for UmBERTo model (e.g. e10_b32_v1)')
+                        help='[Legacy] Run folder for UmBERTo model. Use --run_folders instead.')
     parser.add_argument('--llm_api', type=str, default=None,
                         help='Path to LLM API results JSON (from evaluate_llm_api.py)')
     parser.add_argument('--llm_local', type=str, default=None,
@@ -629,49 +714,79 @@ def main():
     
     args = parser.parse_args()
     
-    # Build run_folders dict from per-model arguments
-    run_folders = {}
-    if args.bert_run:
-        run_folders['bert'] = args.bert_run
-    if args.mdeberta_run:
-        run_folders['mdeberta'] = args.mdeberta_run
-    if args.umberto_run:
-        run_folders['umberto'] = args.umberto_run
+    # Build model_entries list: [(model_name, run_folder), ...]
+    model_entries = []
+    available_models = get_available_models()
+    
+    # New format: --run_folders bert/folder1 bert/folder2 mdeberta/folder1
+    if args.run_folders:
+        for item in args.run_folders:
+            if '/' in item:
+                model, folder = item.split('/', 1)
+                model = model.strip()
+                folder = folder.strip()
+                if model not in available_models:
+                    print(f"Error: Unknown model '{model}'. Available: {available_models}")
+                    return
+                model_entries.append((model, folder))
+            elif '=' in item:
+                # Support old format model=folder for backward compatibility
+                model, folder = item.split('=', 1)
+                model = model.strip()
+                folder = folder.strip()
+                if model not in available_models:
+                    print(f"Error: Unknown model '{model}'. Available: {available_models}")
+                    return
+                model_entries.append((model, folder))
+            else:
+                print(f"Warning: Invalid run_folder format '{item}'. Expected 'model/folder'.")
+    
+    # Legacy support: --bert_run, --mdeberta_run, --umberto_run
+    if args.bert_run and not any(m == 'bert' for m, _ in model_entries):
+        model_entries.append(('bert', args.bert_run))
+    if args.mdeberta_run and not any(m == 'mdeberta' for m, _ in model_entries):
+        model_entries.append(('mdeberta', args.mdeberta_run))
+    if args.umberto_run and not any(m == 'umberto' for m, _ in model_entries):
+        model_entries.append(('umberto', args.umberto_run))
+    
+    # If no run_folders specified, use --models or all models with None run_folder
+    if not model_entries:
+        if args.models:
+            models_list = [m.strip() for m in args.models.split(",")]
+            for m in models_list:
+                if m not in available_models:
+                    print(f"Error: Unknown model '{m}'. Available: {available_models}")
+                    return
+                model_entries.append((m, None))
+        else:
+            model_entries = [(m, None) for m in available_models]
+    
+    # Also build run_folders dict for backward compat with quick/sample modes
+    run_folders = {m: f for m, f in model_entries if f}
+    models_to_compare = list(dict.fromkeys([m for m, _ in model_entries]))  # Unique models
     
     # Validate dataset arguments
     if not args.dataset and not args.test_file and args.mode in ['evaluate', 'full', 'sample']:
-        # Default behavior: try dataset.json if exists
         if os.path.exists("dataset.json"):
             args.dataset = "dataset.json"
-        elif os.path.exists("../datasets/test_set.json") and not args.dataset:
-             args.test_file = "../datasets/test_set.json"
+        elif os.path.exists("../datasets/test_set.json"):
+            args.test_file = "../datasets/test_set.json"
     
-    # Parse models
-    if args.models:
-        models_to_compare = [m.strip() for m in args.models.split(",")]
-        # Validate
-        available = get_available_models()
-        for m in models_to_compare:
-            if m not in available:
-                print(f"Error: Unknown model '{m}'. Available: {available}")
-                return
-    else:
-        models_to_compare = get_available_models()
-    
-    print(f"Comparing models: {models_to_compare}")
+    # Print summary
+    print(f"Model entries: {len(model_entries)}")
+    for model, folder in model_entries:
+        folder_str = folder if folder else "latest"
+        print(f"  - {model}: {folder_str}")
     if args.dataset_models:
-        print(f"Using models trained on: {args.dataset_models}")
-    if run_folders:
-        print(f"Using specific runs: {run_folders}")
+        print(f"Dataset: {args.dataset_models}")
     
     if args.mode == "quick":
         run_quick_comparison(models_to_compare, args.dataset_models, run_folders)
     elif args.mode == "sample":
         run_sample_comparison(models_to_compare, args.samples, args.dataset, args.test_file, args.dataset_models, run_folders)
     elif args.mode == "evaluate" or args.mode == "full":
-        # Handle legacy --llm_results argument
         llm_api = args.llm_api or args.llm_results
-        run_full_evaluation(models_to_compare, args.dataset, args.test_file, args.dataset_models, run_folders, llm_api, args.llm_local)
+        run_full_evaluation(model_entries, args.dataset, args.test_file, args.dataset_models, llm_api, args.llm_local)
 
 
 if __name__ == "__main__":
