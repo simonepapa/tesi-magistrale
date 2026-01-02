@@ -1,22 +1,106 @@
 // Population data for each quartiere (for demographic normalization)
 export const number_of_people: Record<string, number> = {
-  "bari-vecchia_san-nicola": 5726,
-  carbonara: 22625,
-  carrassi: 34248,
-  "ceglie-del-campo": 5018,
-  japigia: 30153,
-  liberta: 38701,
-  loseto: 7580,
-  madonnella: 10680,
-  murat: 29638,
-  "palese-macchie": 7315,
-  picone: 40225,
-  "san-paolo": 27990,
-  "san-pasquale": 18313,
-  "santo-spirito": 1858,
-  stanic: 4489,
-  "torre-a-mare": 5070,
-  "san-girolamo_fesca": 4721
+  "bari-vecchia_san-nicola": 5827,
+  carbonara: 23971,
+  carrassi: 32789,
+  "ceglie-del-campo": 7467,
+  japigia: 29903,
+  liberta: 35629,
+  loseto: 3008,
+  madonnella: 10959,
+  murat: 23141,
+  "palese-macchie": 13644,
+  picone: 40236,
+  "san-paolo": 29912,
+  "san-pasquale": 19726,
+  "santo-spirito": 12076,
+  stanic: 4288,
+  "torre-a-mare": 6257,
+  "san-girolamo_fesca": 15685
+};
+
+// Population Density (residents/km2) - Source: ISTAT 2021 via vitodagostino.altervista.org
+export const quartieri_density: Record<string, number> = {
+  "bari-vecchia_san-nicola": 6471, // San Nicola
+  carbonara: 1877, // Carbonara di Bari
+  carrassi: 10733,
+  "ceglie-del-campo": 1159,
+  japigia: 1948,
+  liberta: 19571,
+  loseto: 390,
+  madonnella: 19758,
+  murat: 16581,
+  "palese-macchie": 1342, // Palese - Macchie
+  picone: 2749,
+  "san-paolo": 3379,
+  "san-pasquale": 4784,
+  "santo-spirito": 1440,
+  stanic: 398,
+  "torre-a-mare": 1148,
+  "san-girolamo_fesca": 3036 // Marconi San Girolamo Fesca
+};
+
+// School Dropout Rate (18-24 years) (%) - Source: ISTAT 2021
+export const quartieri_school_dropout: Record<string, number> = {
+  "bari-vecchia_san-nicola": 26.6,
+  carbonara: 13.0,
+  carrassi: 8.1,
+  "ceglie-del-campo": 14.2,
+  japigia: 12.8,
+  liberta: 22.0,
+  loseto: 8.8,
+  madonnella: 15.0,
+  murat: 11.7,
+  "palese-macchie": 9.2,
+  picone: 7.0,
+  "san-paolo": 22.2,
+  "san-pasquale": 8.0,
+  "santo-spirito": 10.2,
+  stanic: 17.9,
+  "torre-a-mare": 10.7,
+  "san-girolamo_fesca": 13.1
+};
+
+// Unemployment Rate (15+ years) (%) - Source: ISTAT 2021
+export const quartieri_unemployment: Record<string, number> = {
+  "bari-vecchia_san-nicola": 13.9,
+  carbonara: 11.6,
+  carrassi: 10.1,
+  "ceglie-del-campo": 12.1,
+  japigia: 10.7,
+  liberta: 13.2,
+  loseto: 11.5,
+  madonnella: 11.1,
+  murat: 9.7,
+  "palese-macchie": 11.2,
+  picone: 9.3,
+  "san-paolo": 13.1,
+  "san-pasquale": 9.8,
+  "santo-spirito": 10.7,
+  stanic: 13.2,
+  "torre-a-mare": 11.7,
+  "san-girolamo_fesca": 10.7
+};
+
+// Potential Economic Distress (families with children) (%) - Source: ISTAT 2021
+export const quartieri_economic_distress: Record<string, number> = {
+  "bari-vecchia_san-nicola": 4.4,
+  carbonara: 2.8,
+  carrassi: 2.1,
+  "ceglie-del-campo": 2.3,
+  japigia: 1.9,
+  liberta: 3.2,
+  loseto: 2.8,
+  madonnella: 2.7,
+  murat: 2.3,
+  "palese-macchie": 2.5,
+  picone: 1.6,
+  "san-paolo": 3.0,
+  "san-pasquale": 1.8,
+  "santo-spirito": 2.6,
+  stanic: 4.1,
+  "torre-a-mare": 3.0,
+  "san-girolamo_fesca": 2.8
 };
 
 // Crime weights based on maximum penalty from Italian Penal Code (0-100 scale)

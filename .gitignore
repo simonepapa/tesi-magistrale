@@ -3,6 +3,9 @@ node_modules/
 BERTMAN/node_modules
 BERTMAN/backend/api/node_modules
 
+# Dist
+BERTMAN/backend/api/dist
+
 # Python cache
 __pycache__/
 BERTMAN/backend/classifier/__pycache__
