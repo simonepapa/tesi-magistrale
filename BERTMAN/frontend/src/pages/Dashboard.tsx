@@ -268,6 +268,7 @@ function Dashboard() {
             weights={info.weights || null}
             population={info.population}
             minmax={info.minmax}
+            poi_counts={info.poi_counts}
           />
           {error && (
             <div className="bg-destructive/10 border-destructive text-destructive absolute top-4 right-4 left-4 z-[1000] rounded-lg border p-4">

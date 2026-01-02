@@ -247,6 +247,39 @@ router.get("/get-data", (req: Request, res: Response) => {
         quartieriList.includes(poi.quartiere_id)
       );
 
+      // Calculate POI counts per quartiere
+      const poiCountsByQuartiere: { [key: string]: { [key: string]: number } } =
+        {};
+      filtered_poi.forEach((poi: any) => {
+        if (!poiCountsByQuartiere[poi.quartiere_id]) {
+          poiCountsByQuartiere[poi.quartiere_id] = {
+            bar: 0,
+            scommesse: 0,
+            bancomat: 0,
+            stazione: 0
+          };
+        }
+        const quartierePoiCounts = poiCountsByQuartiere[poi.quartiere_id]!;
+        if (
+          poi.tipo_poi in quartierePoiCounts &&
+          quartierePoiCounts[poi.tipo_poi] !== undefined
+        ) {
+          quartierePoiCounts[poi.tipo_poi]!++;
+        }
+      });
+
+      // Add POI counts to each feature's properties
+      final_geojson.features.forEach((feature: any) => {
+        feature.properties.poi_counts = poiCountsByQuartiere[
+          feature.properties.python_id
+        ] || {
+          bar: 0,
+          scommesse: 0,
+          bancomat: 0,
+          stazione: 0
+        };
+      });
+
       // Add POI to response
       const response = {
         ...final_geojson,

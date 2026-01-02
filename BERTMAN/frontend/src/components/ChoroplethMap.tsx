@@ -158,6 +158,7 @@ function ChoroplethMap({
         total_crimes: e.target.feature.properties.crimini_totali,
         population: e.target.feature.properties.population,
         crimes: crimes,
+        poi_counts: e.target.feature.properties.poi_counts,
         ...(weights && {
           weights: weights
         }),

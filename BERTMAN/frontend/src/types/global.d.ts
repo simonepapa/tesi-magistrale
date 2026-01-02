@@ -4,6 +4,13 @@ export type Crime = {
   frequency: number;
 };
 
+export type POICounts = {
+  bar: number;
+  scommesse: number;
+  bancomat: number;
+  stazione: number;
+};
+
 export type InfoQuartiere = {
   name: string;
   crime_index: number | null;
@@ -12,6 +19,7 @@ export type InfoQuartiere = {
   crimes: Crime[];
   weights?: { [key: string]: boolean };
   minmax: boolean;
+  poi_counts?: POICounts;
 };
 
 export type Article = {

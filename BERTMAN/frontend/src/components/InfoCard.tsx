@@ -1,5 +1,5 @@
 import { getCrimeName } from "../helpers/utils";
-import { Crime } from "../types/global";
+import { Crime, POICounts } from "../types/global";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
@@ -10,7 +10,16 @@ type Props = {
   crimes: Crime[];
   weights: { [key: string]: boolean } | null;
   minmax: boolean;
+  poi_counts?: POICounts;
 };
+
+// POI labels and colors for display
+const poiConfig: { key: keyof POICounts; label: string; color: string }[] = [
+  { key: "bar", label: "Bar", color: "#f59e0b" },
+  { key: "scommesse", label: "Scommesse", color: "#ef4444" },
+  { key: "bancomat", label: "Bancomat", color: "#3b82f6" },
+  { key: "stazione", label: "Stazione", color: "#22c55e" }
+];
 
 function InfoCard({
   name,
@@ -18,12 +27,20 @@ function InfoCard({
   population,
   crimes,
   weights,
-  minmax
+  minmax,
+  poi_counts
 }: Props) {
   const numberOfCrimes = crimes.reduce(
     (acc: number, crime: Crime) => acc + crime.frequency,
     0
   );
+
+  const totalPoi = poi_counts
+    ? poi_counts.bar +
+      poi_counts.scommesse +
+      poi_counts.bancomat +
+      poi_counts.stazione
+    : 0;
 
   return (
     <div className="info-card bg-foreground text-background">
@@ -55,6 +72,34 @@ function InfoCard({
           : 0}{" "}
         crimes per 1000 people
       </p>
+      {poi_counts && totalPoi > 0 && (
+        <>
+          <Separator className="my-2" />
+          <div className="mb-2">
+            <p className="mb-1 text-sm font-semibold">
+              POI ({totalPoi} in total)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {poiConfig.map(({ key, label, color }) =>
+                poi_counts[key] > 0 ? (
+                  <div
+                    key={key}
+                    className="flex items-center gap-1 rounded px-2 py-0.5 text-xs"
+                    style={{ backgroundColor: color + "30" }}>
+                    <div
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <span>
+                      {label}: {poi_counts[key]}
+                    </span>
+                  </div>
+                ) : null
+              )}
+            </div>
+          </div>
+        </>
+      )}
       <Separator className="my-2" />
       <div className="flex gap-2 overflow-auto !p-0 xl:flex-col">
         {Object.keys(crimes).map((crime: string, index: number) => (
