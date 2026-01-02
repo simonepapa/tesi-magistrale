@@ -94,6 +94,7 @@ function Dashboard() {
   });
   const [data, setData] = useState<GeoJsonObject | null>(null);
   const [poi, setPoi] = useState<POI[]>([]);
+  const [showPoi, setShowPoi] = useState<boolean>(true);
   const [legendValues, setLegendValues] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -252,6 +253,8 @@ function Dashboard() {
             }));
           }}
           handleResetDate={handleResetDate}
+          showPoi={showPoi}
+          setShowPoi={setShowPoi}
         />
       </div>
       <div className="xl:border-border relative w-full px-4 xl:min-h-screen xl:w-[80%] xl:border-l xl:px-0">
@@ -266,6 +269,9 @@ function Dashboard() {
             crimes={info.crimes}
             population={info.population}
             poi_counts={info.poi_counts}
+            sub_indices={info.sub_indices}
+            activeSubIndices={filters.subIndices}
+            showPoi={showPoi}
           />
           {error && (
             <div className="bg-destructive/10 border-destructive text-destructive absolute top-4 right-4 left-4 z-[1000] rounded-lg border p-4">
@@ -289,9 +295,7 @@ function Dashboard() {
                 color={palette}
                 legendValues={legendValues}
               />
-              {poi.length > 0 && filters.subIndices.poi === 1 && (
-                <POIMarkers poi={poi} />
-              )}
+              {poi.length > 0 && showPoi && <POIMarkers poi={poi} />}
             </MapContainer>
           )}
           <ChoroplethLegend
@@ -299,7 +303,7 @@ function Dashboard() {
             palette={palette}
             legendValues={legendValues}
           />
-          <POILegend visible={poi.length > 0 && filters.subIndices.poi === 1} />
+          <POILegend visible={poi.length > 0 && showPoi} />
         </div>
 
         {data && (

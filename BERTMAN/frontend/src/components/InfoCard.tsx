@@ -1,5 +1,5 @@
 import { getCrimeName } from "../helpers/utils";
-import { Crime, POICounts } from "../types/global";
+import { Crime, POICounts, SubIndices } from "../types/global";
 import { Separator } from "@/components/ui/separator";
 
 type Props = {
@@ -8,6 +8,11 @@ type Props = {
   population: number;
   crimes: Crime[];
   poi_counts?: POICounts;
+  sub_indices?: SubIndices;
+  activeSubIndices?: {
+    [key: string]: number;
+  };
+  showPoi?: boolean;
 };
 
 // POI labels and colors for display
@@ -23,7 +28,10 @@ function InfoCard({
   crime_index,
   population,
   crimes,
-  poi_counts
+  poi_counts,
+  sub_indices,
+  activeSubIndices,
+  showPoi = true
 }: Props) {
   const numberOfCrimes = crimes.reduce(
     (acc: number, crime: Crime) => acc + crime.frequency,
@@ -54,7 +62,7 @@ function InfoCard({
           : 0}{" "}
         crimes per 1000 people
       </p>
-      {poi_counts && totalPoi > 0 && (
+      {poi_counts && totalPoi > 0 && showPoi && (
         <>
           <Separator className="my-2" />
           <div className="mb-2">
@@ -82,17 +90,36 @@ function InfoCard({
           </div>
         </>
       )}
+      {sub_indices && (
+        <>
+          <Separator className="my-2" />
+          <div className="mb-2">
+            <p className="mb-1 text-sm font-semibold">Sub-Indices</p>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <div className="rounded bg-red-500/20 px-2 py-0.5">
+                Crime: {sub_indices.S_crim.toFixed(1)}
+              </div>
+              {activeSubIndices?.poi === 1 && sub_indices.S_poi > 0 && (
+                <div className="rounded bg-orange-500/20 px-2 py-0.5">
+                  POI: {sub_indices.S_poi.toFixed(1)}
+                </div>
+              )}
+              {activeSubIndices?.socioEconomic === 1 &&
+                sub_indices.S_soc > 0 && (
+                  <div className="rounded bg-blue-500/20 px-2 py-0.5">
+                    Socio-Eco: {sub_indices.S_soc.toFixed(1)}
+                  </div>
+                )}
+            </div>
+          </div>
+        </>
+      )}
       <Separator className="my-2" />
       <div className="flex gap-2 overflow-auto !p-0 xl:flex-col">
-        {Object.keys(crimes).map((crime: string, index: number) => (
+        {crimes.map((crime: Crime, index: number) => (
           <div className="flex flex-col gap-0" key={index}>
-            <p className="text-base font-medium">
-              {getCrimeName(crimes[index].crime)}
-            </p>
-            <p className="text-sm">
-              <span className="font-medium">Index: {crimes[index].index}</span>{" "}
-              - {crimes[index].frequency} cases
-            </p>
+            <p className="text-base font-medium">{getCrimeName(crime.crime)}</p>
+            <p className="text-sm">{crime.frequency} cases</p>
           </div>
         ))}
       </div>

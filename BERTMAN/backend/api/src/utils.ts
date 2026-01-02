@@ -497,6 +497,14 @@ export const analyze_quartieri = (
         idx++;
       }
       feature.properties.crimini = subIndices.crimeData;
+
+      // Add sub-indices to feature properties for InfoCard display
+      feature.properties.sub_indices = {
+        S_crim: subIndices.S_crim,
+        S_poi: subIndices.S_poi,
+        S_soc: subIndices.S_soc,
+        S_event: subIndices.S_event
+      };
     }
   }
 

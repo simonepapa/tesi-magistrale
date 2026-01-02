@@ -143,7 +143,8 @@ function ChoroplethMap({ setInfo, data, color, legendValues }: Props) {
         total_crimes: e.target.feature.properties.crimini_totali,
         population: e.target.feature.properties.population,
         crimes: crimes,
-        poi_counts: e.target.feature.properties.poi_counts
+        poi_counts: e.target.feature.properties.poi_counts,
+        sub_indices: e.target.feature.properties.sub_indices
       });
 
       const layer = e.target;

@@ -24,6 +24,8 @@ type Props = {
   setEndDate: Dispatch<SetStateAction<Date | null>>;
   setStartDate: Dispatch<SetStateAction<Date | null>>;
   handleResetDate: () => void;
+  showPoi: boolean;
+  setShowPoi: Dispatch<SetStateAction<boolean>>;
 };
 
 function DashboardLeft({
@@ -38,7 +40,9 @@ function DashboardLeft({
   endDate,
   setEndDate,
   setStartDate,
-  handleResetDate
+  handleResetDate,
+  showPoi,
+  setShowPoi
 }: Props) {
   const handleTileChange = (style: string) => {
     setTile(style);
@@ -584,6 +588,19 @@ function DashboardLeft({
                       </p>
                     </TooltipContent>
                   </Tooltip>
+                </div>
+                <div className="mb-2 flex flex-col gap-2">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <Checkbox
+                      checked={showPoi}
+                      onCheckedChange={(checked) =>
+                        setShowPoi(checked === true)
+                      }
+                    />
+                    <span className="text-sm font-medium">
+                      Show or hide POI
+                    </span>
+                  </label>
                 </div>
                 <div className="flex flex-row flex-wrap gap-3">
                   <label className="flex cursor-pointer items-center gap-2">
