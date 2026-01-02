@@ -105,6 +105,10 @@ function DashboardLeft({
         bancomat: 1,
         stazione: 1
       },
+      subIndices: {
+        poi: 1,
+        socioEconomic: 1
+      },
       dates: {
         startDate: null,
         endDate: null
@@ -170,6 +174,62 @@ function DashboardLeft({
                 disableFuture={true}
                 className="lg:flex-1"
               />
+            </div>
+          </div>
+
+          <Separator className="my-1" />
+
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1">
+              <label className="text-lg font-medium">Sub-Indices</label>
+              <Tooltip>
+                <TooltipTrigger asChild={true}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-full">
+                    <Info className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-sm">
+                    Toggle sub-indices to include in the Crime Risk Index
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="flex flex-row flex-wrap gap-3">
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={filters.subIndices.poi === 1}
+                  onCheckedChange={() => {
+                    setFilters((prev) => ({
+                      ...prev,
+                      subIndices: {
+                        ...prev.subIndices,
+                        poi: prev.subIndices.poi === 1 ? 0 : 1
+                      }
+                    }));
+                  }}
+                />
+                <span className="text-sm">POI Sub-Index</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={filters.subIndices.socioEconomic === 1}
+                  onCheckedChange={() => {
+                    setFilters((prev) => ({
+                      ...prev,
+                      subIndices: {
+                        ...prev.subIndices,
+                        socioEconomic:
+                          prev.subIndices.socioEconomic === 1 ? 0 : 1
+                      }
+                    }));
+                  }}
+                />
+                <span className="text-sm">Socio-Economic Sub-Index</span>
+              </label>
             </div>
           </div>
 
@@ -502,61 +562,70 @@ function DashboardLeft({
 
           <Separator className="my-1" />
 
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-1">
-              <label className="text-lg font-medium">Filter by POI</label>
-              <Tooltip>
-                <TooltipTrigger asChild={true}>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-full">
-                    <Info className="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-sm">
-                    Select which Points of Interest to include in the analysis.
-                    Please note that this will change the index's value
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <div className="flex flex-row flex-wrap gap-3">
-              <label className="flex cursor-pointer items-center gap-2">
-                <Checkbox
-                  checked={filters.poi["bar"] === 1}
-                  onCheckedChange={() => handleFiltersChange("bar", "poi")}
-                />
-                <span className="text-sm">Bar</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <Checkbox
-                  checked={filters.poi["scommesse"] === 1}
-                  onCheckedChange={() =>
-                    handleFiltersChange("scommesse", "poi")
-                  }
-                />
-                <span className="text-sm">Betting shops</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <Checkbox
-                  checked={filters.poi["bancomat"] === 1}
-                  onCheckedChange={() => handleFiltersChange("bancomat", "poi")}
-                />
-                <span className="text-sm">ATM</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <Checkbox
-                  checked={filters.poi["stazione"] === 1}
-                  onCheckedChange={() => handleFiltersChange("stazione", "poi")}
-                />
-                <span className="text-sm">Station</span>
-              </label>
-            </div>
-          </div>
+          {filters.subIndices.poi === 1 && (
+            <>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-1">
+                  <label className="text-lg font-medium">Filter by POI</label>
+                  <Tooltip>
+                    <TooltipTrigger asChild={true}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 rounded-full">
+                        <Info className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-sm">
+                        Select which Points of Interest to include in the
+                        analysis. Please note that this will change the index's
+                        value
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <div className="flex flex-row flex-wrap gap-3">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <Checkbox
+                      checked={filters.poi["bar"] === 1}
+                      onCheckedChange={() => handleFiltersChange("bar", "poi")}
+                    />
+                    <span className="text-sm">Bar</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <Checkbox
+                      checked={filters.poi["scommesse"] === 1}
+                      onCheckedChange={() =>
+                        handleFiltersChange("scommesse", "poi")
+                      }
+                    />
+                    <span className="text-sm">Betting shops</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <Checkbox
+                      checked={filters.poi["bancomat"] === 1}
+                      onCheckedChange={() =>
+                        handleFiltersChange("bancomat", "poi")
+                      }
+                    />
+                    <span className="text-sm">ATM</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <Checkbox
+                      checked={filters.poi["stazione"] === 1}
+                      onCheckedChange={() =>
+                        handleFiltersChange("stazione", "poi")
+                      }
+                    />
+                    <span className="text-sm">Station</span>
+                  </label>
+                </div>
+              </div>
 
-          <Separator className="my-1" />
+              <Separator className="my-1" />
+            </>
+          )}
 
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1">

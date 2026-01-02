@@ -70,6 +70,9 @@ router.get("/get-data", (req: Request, res: Response) => {
   let crimes = (req.query.crimes as string) || "";
   let quartieri = (req.query.quartieri as string) || "";
   const weightsForArticles = req.query.weightsForArticles === "true";
+  const enablePoiSubIndex = req.query.enablePoiSubIndex !== "false"; // default true
+  const enableSocioEconomicSubIndex =
+    req.query.enableSocioEconomicSubIndex !== "false"; // default true
 
   // Validate and normalize dates
   const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -269,8 +272,8 @@ router.get("/get-data", (req: Request, res: Response) => {
         poiCountsByQuartiere,
         {
           enableCrimeSubIndex: true,
-          enablePoiSubIndex: req.query.poi !== "",
-          enableSocioEconomicSubIndex: false,
+          enablePoiSubIndex: enablePoiSubIndex && req.query.poi !== "",
+          enableSocioEconomicSubIndex: enableSocioEconomicSubIndex,
           enableEventSubIndex: false,
           weightsForArticles: weightsForArticles
         }

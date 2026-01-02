@@ -88,6 +88,9 @@ export type Filters = {
   poi: {
     [key: string]: number;
   };
+  subIndices: {
+    [key: string]: number;
+  };
   dates: {
     [key: string]: Date | null;
   };

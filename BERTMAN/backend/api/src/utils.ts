@@ -19,10 +19,10 @@ export const number_of_people: Record<string, number> = {
   "san-girolamo_fesca": 15685
 };
 
-// Population Density (residents/km2) - Source: ISTAT 2021 via vitodagostino.altervista.org
+// Population density (residents/km2)
 export const quartieri_density: Record<string, number> = {
-  "bari-vecchia_san-nicola": 6471, // San Nicola
-  carbonara: 1877, // Carbonara di Bari
+  "bari-vecchia_san-nicola": 6471,
+  carbonara: 1877,
   carrassi: 10733,
   "ceglie-del-campo": 1159,
   japigia: 1948,
@@ -30,17 +30,17 @@ export const quartieri_density: Record<string, number> = {
   loseto: 390,
   madonnella: 19758,
   murat: 16581,
-  "palese-macchie": 1342, // Palese - Macchie
+  "palese-macchie": 1342,
   picone: 2749,
   "san-paolo": 3379,
   "san-pasquale": 4784,
   "santo-spirito": 1440,
   stanic: 398,
   "torre-a-mare": 1148,
-  "san-girolamo_fesca": 3036 // Marconi San Girolamo Fesca
+  "san-girolamo_fesca": 3036
 };
 
-// School Dropout Rate (18-24 years) (%) - Source: ISTAT 2021
+// School dropout rate (18-24 years) (%)
 export const quartieri_school_dropout: Record<string, number> = {
   "bari-vecchia_san-nicola": 26.6,
   carbonara: 13.0,
@@ -61,7 +61,7 @@ export const quartieri_school_dropout: Record<string, number> = {
   "san-girolamo_fesca": 13.1
 };
 
-// Unemployment Rate (15+ years) (%) - Source: ISTAT 2021
+// Unemployment rate (15+ years) (%)
 export const quartieri_unemployment: Record<string, number> = {
   "bari-vecchia_san-nicola": 13.9,
   carbonara: 11.6,
@@ -82,7 +82,7 @@ export const quartieri_unemployment: Record<string, number> = {
   "san-girolamo_fesca": 10.7
 };
 
-// Potential Economic Distress (families with children) (%) - Source: ISTAT 2021
+// Potential economic distress (%)
 export const quartieri_economic_distress: Record<string, number> = {
   "bari-vecchia_san-nicola": 4.4,
   carbonara: 2.8,
@@ -263,18 +263,16 @@ function calculatePoiSubIndex(
 }
 
 // SUB-INDEX 3: Socio-economic Sub-index (S_soc)
-// Formula: S_soc,j = α1*X_u,j + α2*X_g,j + α3*X_d,j + α4*X_s,j
-function calculateSocioEconomicSubIndex(
-  _quartiere: string,
-  _socioEconomicData?: {
-    unemployment?: number;
-    giniIndex?: number;
-    populationDensity?: number;
-    schoolDropout?: number;
-  }
-): number {
-  // To be developed as soon as data is available
-  return 0;
+// Formula: S_soc,j = density + dropout + unemployment + distress
+function calculateSocioEconomicSubIndex(quartiere: string): number {
+  // Get raw socio-economic indicators for this quartiere
+  const density = quartieri_density[quartiere] || 0;
+  const dropout = quartieri_school_dropout[quartiere] || 0;
+  const unemployment = quartieri_unemployment[quartiere] || 0;
+  const distress = quartieri_economic_distress[quartiere] || 0;
+
+  // Raw sub-index: sum of all indicators (will be normalized later)
+  return density + dropout + unemployment + distress;
 }
 
 // SUB-INDEX 4: Temporal Events Sub-index (S_event)
@@ -421,11 +419,33 @@ export const analyze_quartieri = (
   const poiValues = quartieriList.map((q) => rawSubIndices[q]?.S_poi || 0);
   const normalizedPoi = scaler.fit_transform(poiValues);
 
+  // Normalize Socio-Economic sub-index components separately for equal weighting
+  const densities = quartieriList.map((q) => quartieri_density[q] || 0);
+  const dropouts = quartieriList.map((q) => quartieri_school_dropout[q] || 0);
+  const unemployments = quartieriList.map(
+    (q) => quartieri_unemployment[q] || 0
+  );
+  const distresses = quartieriList.map(
+    (q) => quartieri_economic_distress[q] || 0
+  );
+
+  const normDensities = scaler.fit_transform(densities);
+  const normDropouts = scaler.fit_transform(dropouts);
+  const normUnemployments = scaler.fit_transform(unemployments);
+  const normDistresses = scaler.fit_transform(distresses);
+
   // Apply normalized values
   quartieriList.forEach((q, i) => {
     if (rawSubIndices[q]) {
       rawSubIndices[q]!.S_crim = normalizedCrim[i] || 0;
       rawSubIndices[q]!.S_poi = normalizedPoi[i] || 0;
+      // S_soc is the average of the 4 normalized components (each 0-100)
+      rawSubIndices[q]!.S_soc =
+        ((normDensities[i] || 0) +
+          (normDropouts[i] || 0) +
+          (normUnemployments[i] || 0) +
+          (normDistresses[i] || 0)) /
+        4;
     }
   });
 

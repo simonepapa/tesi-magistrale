@@ -71,6 +71,10 @@ function Dashboard() {
         bancomat: 1,
         stazione: 1
       },
+      subIndices: {
+        poi: 1,
+        socioEconomic: 1
+      },
       dates: {
         startDate: urlStartDate ? new Date(urlStartDate) : null,
         endDate: urlEndDate ? new Date(urlEndDate) : null
@@ -152,6 +156,15 @@ function Dashboard() {
       queryParams.push(
         `${filters?.weights.num_of_articles === 1 ? "weightsForArticles=true" : "weightsForArticles=false"}`
       );
+
+      // Sub-index toggles
+      queryParams.push(
+        `enablePoiSubIndex=${filters.subIndices.poi === 1 ? "true" : "false"}`
+      );
+      queryParams.push(
+        `enableSocioEconomicSubIndex=${filters.subIndices.socioEconomic === 1 ? "true" : "false"}`
+      );
+
       const queryString = queryParams.join("&");
 
       const response = await fetch(
@@ -276,7 +289,9 @@ function Dashboard() {
                 color={palette}
                 legendValues={legendValues}
               />
-              {poi.length > 0 && <POIMarkers poi={poi} />}
+              {poi.length > 0 && filters.subIndices.poi === 1 && (
+                <POIMarkers poi={poi} />
+              )}
             </MapContainer>
           )}
           <ChoroplethLegend
@@ -284,7 +299,7 @@ function Dashboard() {
             palette={palette}
             legendValues={legendValues}
           />
-          <POILegend visible={poi.length > 0} />
+          <POILegend visible={poi.length > 0 && filters.subIndices.poi === 1} />
         </div>
 
         {data && (
