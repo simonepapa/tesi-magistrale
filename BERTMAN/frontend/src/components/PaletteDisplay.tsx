@@ -9,21 +9,6 @@ function PaletteDisplay({ palette }: Props) {
     <div className="flex flex-col">
       <div
         className="h-4 w-4"
-        style={{ backgroundColor: colorizeSquare(8, palette) }}></div>
-      <div
-        className="h-4 w-4"
-        style={{ backgroundColor: colorizeSquare(7, palette) }}></div>
-      <div
-        className="h-4 w-4"
-        style={{ backgroundColor: colorizeSquare(6, palette) }}></div>
-      <div
-        className="h-4 w-4"
-        style={{ backgroundColor: colorizeSquare(5, palette) }}></div>
-      <div
-        className="h-4 w-4"
-        style={{ backgroundColor: colorizeSquare(4, palette) }}></div>
-      <div
-        className="h-4 w-4"
         style={{ backgroundColor: colorizeSquare(3, palette) }}></div>
       <div
         className="h-4 w-4"

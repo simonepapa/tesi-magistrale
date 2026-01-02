@@ -8,19 +8,10 @@ type Props = {
   setInfo: Dispatch<SetStateAction<InfoQuartiere>>;
   data: GeoJsonObject | null;
   color: string;
-  weights: { [key: string]: boolean } | null;
-  minmax: boolean;
   legendValues: number[];
 };
 
-function ChoroplethMap({
-  setInfo,
-  data,
-  color,
-  weights,
-  minmax,
-  legendValues
-}: Props) {
+function ChoroplethMap({ setInfo, data, color, legendValues }: Props) {
   const map = useMap();
 
   const colorScales: { [key: string]: string[] } = useMemo(
@@ -48,11 +39,7 @@ function ChoroplethMap({
   const style = useCallback(
     (feature: Feature) => {
       return {
-        fillColor: getColor(
-          minmax
-            ? feature.properties?.crime_index_scalato
-            : feature.properties?.crime_index
-        ),
+        fillColor: getColor(feature.properties?.crime_index_scalato),
         weight: 1,
         opacity: 1,
         color: "white",
@@ -60,7 +47,7 @@ function ChoroplethMap({
         fillOpacity: 0.5
       };
     },
-    [getColor, minmax]
+    [getColor]
   );
 
   const highlightFeature = useCallback(
@@ -152,17 +139,11 @@ function ChoroplethMap({
 
       setInfo({
         name: e.target.feature.properties.name,
-        crime_index: minmax
-          ? e.target.feature.properties.crime_index_scalato
-          : e.target.feature.properties.crime_index,
+        crime_index: e.target.feature.properties.crime_index_scalato,
         total_crimes: e.target.feature.properties.crimini_totali,
         population: e.target.feature.properties.population,
         crimes: crimes,
-        poi_counts: e.target.feature.properties.poi_counts,
-        ...(weights && {
-          weights: weights
-        }),
-        minmax: minmax
+        poi_counts: e.target.feature.properties.poi_counts
       });
 
       const layer = e.target;
@@ -175,7 +156,7 @@ function ChoroplethMap({
 
       layer.bringToFront();
     },
-    [minmax, setInfo, weights]
+    [setInfo]
   );
 
   const resetHighlight = useCallback(
@@ -185,16 +166,12 @@ function ChoroplethMap({
         crime_index: null,
         total_crimes: null,
         population: 0,
-        crimes: [],
-        ...(weights && {
-          weights: weights
-        }),
-        minmax: minmax
+        crimes: []
       });
 
       e.target.setStyle(style(e.target.feature));
     },
-    [minmax, setInfo, style, weights]
+    [setInfo, style]
   );
 
   const zoomToFeature = useCallback(

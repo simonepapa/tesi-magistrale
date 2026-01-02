@@ -1,6 +1,5 @@
 import { getCrimeName } from "../helpers/utils";
 import { Article, Filters } from "../types/global";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChartConfig,
@@ -26,8 +25,6 @@ import {
 
 type Props = {
   data: GeoJsonObject | null;
-  weights: { [key: string]: boolean } | null;
-  minmax: boolean;
   articles: Article[] | null;
   filters: Filters;
   startDate: Date | null;
@@ -71,7 +68,7 @@ const keyToLabels: { [key: string]: string } = {
   "torre-a-mare": "Torre a mare"
 };
 
-function Plots({ data, weights, minmax, articles, filters }: Props) {
+function Plots({ data, articles, filters }: Props) {
   const [crimesByYear, setCrimesByYear] = useState<
     | {
         [key: string]: number | string;
@@ -283,19 +280,6 @@ function Plots({ data, weights, minmax, articles, filters }: Props) {
 
   return (
     <div className="xl:pl-4">
-      {weights &&
-        Object.keys(weights).some((weight: string) => weights![weight]) && (
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <p className="text-base font-bold">Weights and scaling:</p>
-            {minmax && <Badge variant="default">MINMAX SCALED</Badge>}
-            {weights?.num_of_articles && (
-              <Badge variant="default">NO. OF ARTICLES</Badge>
-            )}
-            {weights?.num_of_people && (
-              <Badge variant="default">NO. OF PEOPLE</Badge>
-            )}
-          </div>
-        )}
       {data && barDataset && crimesByType && (
         <div className="flex flex-col gap-4 xl:flex-row">
           <Card className="bg-accent w-full xl:w-1/2">
@@ -307,7 +291,7 @@ function Plots({ data, weights, minmax, articles, filters }: Props) {
                 config={
                   {
                     crimeIndex: {
-                      label: minmax ? "Scaled crime index" : "Crime index",
+                      label: "Standardized Crime Index (0-100)",
                       color: "var(--primary)"
                     }
                   } satisfies ChartConfig
@@ -331,7 +315,7 @@ function Plots({ data, weights, minmax, articles, filters }: Props) {
                   <YAxis tickLine={false} axisLine={false} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar
-                    dataKey={minmax ? "crime_index_scalato" : "crime_index"}
+                    dataKey="crime_index_scalato"
                     fill="var(--primary)"
                     radius={4}
                   />

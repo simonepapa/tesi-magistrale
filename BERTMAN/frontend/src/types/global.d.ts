@@ -11,15 +11,21 @@ export type POICounts = {
   stazione: number;
 };
 
+export type SubIndices = {
+  S_crim: number;
+  S_poi: number;
+  S_soc: number;
+  S_event: number;
+};
+
 export type InfoQuartiere = {
   name: string;
   crime_index: number | null;
   total_crimes: number | null;
   population: number;
   crimes: Crime[];
-  weights?: { [key: string]: boolean };
-  minmax: boolean;
   poi_counts?: POICounts;
+  sub_indices?: SubIndices;
 };
 
 export type Article = {
@@ -79,7 +85,7 @@ export type Filters = {
   weights: {
     [key: string]: number;
   };
-  scaling: {
+  poi: {
     [key: string]: number;
   };
   dates: {

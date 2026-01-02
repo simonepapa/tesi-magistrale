@@ -63,11 +63,13 @@ function Dashboard() {
         "san-girolamo_fesca": 1
       },
       weights: {
-        num_of_articles: 1,
-        num_of_people: 0
+        num_of_articles: 1
       },
-      scaling: {
-        minmax: 1
+      poi: {
+        bar: 1,
+        scommesse: 1,
+        bancomat: 1,
+        stazione: 1
       },
       dates: {
         startDate: urlStartDate ? new Date(urlStartDate) : null,
@@ -84,12 +86,7 @@ function Dashboard() {
     crime_index: null,
     total_crimes: null,
     population: 0,
-    crimes: [],
-    weights: {
-      num_of_articles: false,
-      num_of_people: false
-    },
-    minmax: true
+    crimes: []
   });
   const [data, setData] = useState<GeoJsonObject | null>(null);
   const [poi, setPoi] = useState<POI[]>([]);
@@ -130,6 +127,11 @@ function Dashboard() {
         .join(",");
       queryParams.push(`quartieri=${selectedQuartieri}`);
 
+      const selectedPoi = Object.keys(filters.poi)
+        .filter((poi) => filters.poi[poi] === 1)
+        .join(",");
+      queryParams.push(`poi=${selectedPoi}`);
+
       // Update URL with current filters
       const newSearchParams = new URLSearchParams();
       if (filters.dates.startDate) {
@@ -149,12 +151,6 @@ function Dashboard() {
 
       queryParams.push(
         `${filters?.weights.num_of_articles === 1 ? "weightsForArticles=true" : "weightsForArticles=false"}`
-      );
-      queryParams.push(
-        `${filters?.weights.num_of_people === 1 ? "weightsForPeople=true" : "weightsForPeople=false"}`
-      );
-      queryParams.push(
-        `${filters?.scaling.minmax === 1 ? "minmaxScaler=true" : "minmaxScaler=false"}`
       );
       const queryString = queryParams.join("&");
 
@@ -178,23 +174,13 @@ function Dashboard() {
       const crimeIndexes: number[] = [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (jsonData as any)?.features.forEach((item: any) => {
-        crimeIndexes.push(
-          jsonData.minmaxScaler
-            ? item.properties.crime_index_scalato
-            : item.properties.crime_index
-        );
+        crimeIndexes.push(item.properties.crime_index_scalato);
       });
       // Fixed intervals: 0-20, 21-50, 51-80, 81-100
       setLegendValues([0, 21, 51, 81]);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setInfo((prevState: any) => ({
-        ...prevState,
-        weights: {
-          num_of_articles: jsonData.weightsForArticles,
-          num_of_people: jsonData.weightsForPeople
-        },
-        minmax: jsonData.minmaxScaler
+      setInfo((prevState: InfoQuartiere) => ({
+        ...prevState
       }));
     } catch (error) {
       const errorMessage =
@@ -265,9 +251,7 @@ function Dashboard() {
             name={info.name}
             crime_index={info.crime_index}
             crimes={info.crimes}
-            weights={info.weights || null}
             population={info.population}
-            minmax={info.minmax}
             poi_counts={info.poi_counts}
           />
           {error && (
@@ -290,8 +274,6 @@ function Dashboard() {
                 setInfo={setInfo}
                 data={data}
                 color={palette}
-                weights={info.weights || null}
-                minmax={info.minmax}
                 legendValues={legendValues}
               />
               {poi.length > 0 && <POIMarkers poi={poi} />}
@@ -319,8 +301,6 @@ function Dashboard() {
             <CollapsibleContent className="bg-card animate-slide-down data-[state=closed]:animate-slide-up max-h-[60vh] overflow-y-auto p-4">
               <Plots
                 data={data}
-                weights={info.weights || null}
-                minmax={info.minmax}
                 articles={articles}
                 filters={filters}
                 startDate={filters.dates.startDate}

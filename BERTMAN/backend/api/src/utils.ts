@@ -1,3 +1,4 @@
+// Population data for each quartiere (for demographic normalization)
 export const number_of_people: Record<string, number> = {
   "bari-vecchia_san-nicola": 5726,
   carbonara: 22625,
@@ -18,12 +19,57 @@ export const number_of_people: Record<string, number> = {
   "san-girolamo_fesca": 4721
 };
 
+// Crime weights based on maximum penalty from Italian Penal Code (0-100 scale)
+export const crimeWeights: Record<string, number> = {
+  omicidio: 100,
+  associazione_di_tipo_mafioso: 95,
+  tentato_omicidio: 90,
+  violenza_sessuale: 85,
+  rapina: 80,
+  estorsione: 75,
+  omicidio_stradale: 70,
+  spaccio: 65,
+  aggressione: 50,
+  omicidio_colposo: 45,
+  furto: 40,
+  contrabbando: 30,
+  truffa: 20
+};
+
+// POI types
+export const poiTypes = ["bar", "scommesse", "bancomat", "stazione"] as const;
+type PoiType = (typeof poiTypes)[number];
+
+// Affinity matrix between crimes and POI types (how much a POI "attracts" a crime)
+// Values range from 0 (no affinity) to 1 (high affinity)
+export const crimePoiAffinity: Record<string, Record<PoiType, number>> = {
+  omicidio: { bar: 0.1, scommesse: 0.3, bancomat: 0.1, stazione: 0.2 },
+  associazione_di_tipo_mafioso: {
+    bar: 0.2,
+    scommesse: 0.8,
+    bancomat: 0.1,
+    stazione: 0.1
+  },
+  tentato_omicidio: { bar: 0.3, scommesse: 0.4, bancomat: 0.1, stazione: 0.2 },
+  violenza_sessuale: { bar: 0.7, scommesse: 0.1, bancomat: 0.1, stazione: 0.8 },
+  rapina: { bar: 0.3, scommesse: 0.9, bancomat: 1.0, stazione: 0.5 },
+  estorsione: { bar: 0.5, scommesse: 0.7, bancomat: 0.1, stazione: 0.1 },
+  omicidio_stradale: { bar: 0.6, scommesse: 0.0, bancomat: 0.0, stazione: 0.0 },
+  spaccio: { bar: 0.4, scommesse: 0.2, bancomat: 0.1, stazione: 0.8 },
+  aggressione: { bar: 0.7, scommesse: 0.5, bancomat: 0.2, stazione: 0.6 },
+  omicidio_colposo: { bar: 0.1, scommesse: 0.1, bancomat: 0.0, stazione: 0.1 },
+  furto: { bar: 0.2, scommesse: 0.2, bancomat: 0.8, stazione: 0.7 },
+  contrabbando: { bar: 0.2, scommesse: 0.4, bancomat: 0.1, stazione: 0.5 },
+  truffa: { bar: 0.2, scommesse: 0.6, bancomat: 0.7, stazione: 0.3 }
+};
+
+// MinMax Scaler class for normalization (always applied)
 class MinMaxScaler {
   min: number;
   max: number;
   featureRange: [number, number];
 
-  constructor(featureRange: [number, number] = [0, 1]) {
+  constructor(featureRange: [number, number] = [0, 100]) {
     this.featureRange = featureRange;
     this.min = 0;
     this.max = 1;
@@ -50,180 +96,324 @@ class MinMaxScaler {
   }
 }
 
+// SUB-INDEX 1: Crime History Sub-index (S_crim)
+// Formula: S_crim,j = Σ(n_i,j * w_i) / P_j
+// Population normalization is always applied
+function calculateCrimeSubIndex(
+  articles: any[],
+  quartiere: string,
+  selectedCrimes: string[],
+  normalizeByArticles: boolean = false
+): {
+  subIndex: number;
+  crimeData: Record<string, { frequenza: number; crime_index: number }>;
+} {
+  // Filter articles for this quartiere
+  const quartiereArticles = articles.filter((a) => a.quartiere === quartiere);
+
+  // Initialize crime data
+  const crimeData: Record<string, { frequenza: number; crime_index: number }> =
+    {};
+  for (const crime of selectedCrimes) {
+    crimeData[crime] = { frequenza: 0, crime_index: 0 };
+  }
+
+  // Count crime frequencies
+  quartiereArticles.forEach((article: any) => {
+    for (const crime of selectedCrimes) {
+      if (article[crime] === 1 && crimeData[crime]) {
+        crimeData[crime]!.frequenza += 1;
+      }
+    }
+  });
+
+  // Calculate weighted sum: Σ(n_i,j * w_i)
+  let weightedSum = 0;
+  for (const crime of selectedCrimes) {
+    const freq = crimeData[crime]?.frequenza || 0;
+    const weight = crimeWeights[crime] || 0;
+    const crimeIndex = freq * weight;
+    if (crimeData[crime]) {
+      crimeData[crime]!.crime_index = crimeIndex;
+    }
+    weightedSum += crimeIndex;
+  }
+
+  // Always normalize by population: S_crim,j = Σ(n_i,j * w_i) / P_j
+  const population = number_of_people[quartiere] || 1;
+  let subIndex = weightedSum / population;
+
+  // Optional: Normalize by number of articles
+  if (normalizeByArticles) {
+    const articleCount = quartiereArticles.length || 1;
+    subIndex = subIndex / articleCount;
+  }
+
+  return { subIndex, crimeData };
+}
+
+// SUB-INDEX 2: POI Sub-index (S_poi)
+// Formula: S_poi,j = Σ_k [ p_k,j * Σ_i (w_i * α_i,k) ]
+function calculatePoiSubIndex(
+  poiCounts: Record<PoiType, number>,
+  selectedCrimes: string[]
+): number {
+  let subIndex = 0;
+
+  for (const poiType of poiTypes) {
+    const poiCount = poiCounts[poiType] || 0;
+
+    // Calculate danger score for this POI type: Σ_i (w_i * α_i,k)
+    let poiDangerScore = 0;
+    for (const crime of selectedCrimes) {
+      const weight = crimeWeights[crime] || 0;
+      const affinity = crimePoiAffinity[crime]?.[poiType] || 0;
+      poiDangerScore += weight * affinity;
+    }
+
+    // Multiply by POI count and add to total
+    subIndex += poiCount * poiDangerScore;
+  }
+
+  return subIndex;
+}
+
+// SUB-INDEX 3: Socio-economic Sub-index (S_soc)
+// Formula: S_soc,j = α1*X_u,j + α2*X_g,j + α3*X_d,j + α4*X_s,j
+function calculateSocioEconomicSubIndex(
+  _quartiere: string,
+  _socioEconomicData?: {
+    unemployment?: number;
+    giniIndex?: number;
+    populationDensity?: number;
+    schoolDropout?: number;
+  }
+): number {
+  // To be developed as soon as data is available
+  return 0;
+}
+
+// SUB-INDEX 4: Temporal Events Sub-index (S_event)
+// Formula: S_event,j,t = Σ_e (I_e,j,t * δ_e)
+function calculateEventSubIndex(
+  _quartiere: string,
+  _timestamp?: Date,
+  _activeEvents?: Array<{ eventId: string; impactCoefficient: number }>
+): number {
+  // To be developed as soon as data is available
+  return 0;
+}
+
+// FINAL CRI FORMULA
+// CRI_j,t = (K_crim*Ŝ_crim + K_soc*Ŝ_soc + K_poi*Ŝ_poi + K_event*Ŝ_event) / (K_crim + K_soc + K_poi + K_event)
+interface SubIndexCoefficients {
+  K_crim: number; // 0 or 1 to enable/disable crime sub-index
+  K_soc: number; // 0 or 1 to enable/disable socio-economic sub-index
+  K_poi: number; // 0 or 1 to enable/disable POI sub-index
+  K_event: number; // 0 or 1 to enable/disable event sub-index
+}
+
+function calculateFinalCRI(
+  normalizedSubIndices: {
+    S_crim: number;
+    S_soc: number;
+    S_poi: number;
+    S_event: number;
+  },
+  coefficients: SubIndexCoefficients
+): number {
+  const numerator =
+    coefficients.K_crim * normalizedSubIndices.S_crim +
+    coefficients.K_soc * normalizedSubIndices.S_soc +
+    coefficients.K_poi * normalizedSubIndices.S_poi +
+    coefficients.K_event * normalizedSubIndices.S_event;
+
+  const denominator =
+    coefficients.K_crim +
+    coefficients.K_soc +
+    coefficients.K_poi +
+    coefficients.K_event;
+
+  if (denominator === 0) return 0;
+
+  return numerator / denominator;
+}
+
+// MAIN ANALYSIS FUNCTION
+export interface AnalysisOptions {
+  // Sub-index activation coefficients (K values)
+  enableCrimeSubIndex?: boolean;
+  enableSocioEconomicSubIndex?: boolean;
+  enablePoiSubIndex?: boolean;
+  enableEventSubIndex?: boolean;
+  weightsForArticles?: boolean;
+}
+
 export const analyze_quartieri = (
   articles: any[],
   quartieri_data: any[],
   geojson_data: any,
   selected_crimes: string[],
-  weightsForArticles: boolean = true,
-  weightsForPeople: boolean = false,
-  minmaxScaler: boolean = true
+  poiCountsByQuartiere?: Record<string, Record<string, number>>,
+  options?: AnalysisOptions
 ) => {
   const scaler = new MinMaxScaler([0, 100]);
 
-  const crimes: Record<string, number> = {
-    omicidio: 0,
-    omicidio_colposo: 0,
-    omicidio_stradale: 0,
-    tentato_omicidio: 0,
-    furto: 0,
-    rapina: 0,
-    violenza_sessuale: 0,
-    aggressione: 0,
-    spaccio: 0,
-    truffa: 0,
-    estorsione: 0,
-    contrabbando: 0,
-    associazione_di_tipo_mafioso: 0
+  // Determine which sub-indices are enabled
+  const coefficients: SubIndexCoefficients = {
+    K_crim: options?.enableCrimeSubIndex !== false ? 1 : 0, // Default: enabled
+    K_soc: options?.enableSocioEconomicSubIndex === true ? 1 : 0, // Default: disabled (no data)
+    K_poi: options?.enablePoiSubIndex !== false && poiCountsByQuartiere ? 1 : 0, // Enabled if POI data available
+    K_event: options?.enableEventSubIndex === true ? 1 : 0 // Default: disabled (no data)
   };
 
-  const weights: Record<string, number> = {
-    omicidio: 1,
-    omicidio_colposo: 0.7,
-    omicidio_stradale: 0.8,
-    tentato_omicidio: 0.9,
-    furto: 0.2,
-    rapina: 0.7,
-    violenza_sessuale: 0.8,
-    aggressione: 0.6,
-    spaccio: 0.5,
-    truffa: 0.3,
-    estorsione: 0.6,
-    contrabbando: 0.4,
-    associazione_di_tipo_mafioso: 1
-  };
+  // Get list of quartieri to process
+  const quartieriList = quartieri_data.map((q) => q.Quartiere);
 
-  // Filter crimes
-  let filtered_crimes = crimes;
-  if (selected_crimes.length > 0) {
-    filtered_crimes = Object.keys(crimes)
-      .filter((key) => selected_crimes.includes(key))
-      .reduce(
-        (obj, key) => {
-          const val = crimes[key];
-          if (val !== undefined) {
-            obj[key] = val;
-          }
-          return obj;
-        },
-        {} as Record<string, number>
-      );
-  }
-
-  // Group by quartiere
-  const groupedArticles = articles.reduce(
-    (acc, article) => {
-      const quartiere = article.quartiere;
-      if (!acc[quartiere]) acc[quartiere] = [];
-      acc[quartiere].push(article);
-      return acc;
-    },
-    {} as Record<string, any[]>
-  );
-
-  for (const group in groupedArticles) {
-    const group_df = groupedArticles[group];
-    const crime_data: Record<
-      string,
-      { frequenza: number; crime_index: number }
-    > = {};
-
-    for (const crime in filtered_crimes) {
-      crime_data[crime] = { frequenza: 0, crime_index: 0 };
+  // Storage for raw sub-indices (before normalization)
+  const rawSubIndices: Record<
+    string,
+    {
+      S_crim: number;
+      S_soc: number;
+      S_poi: number;
+      S_event: number;
+      crimeData: Record<string, { frequenza: number; crime_index: number }>;
+      totalCrimes: number;
+      articleCount: number;
     }
+  > = {};
 
-    // Frequency
-    group_df.forEach((row: any) => {
-      for (const crime in filtered_crimes) {
-        if (row[crime] === 1 && crime_data[crime]) {
-          crime_data[crime].frequenza += 1;
-        }
-      }
-    });
+  // STEP 1: Calculate raw sub-indices for each quartiere
+  for (const quartiere of quartieriList) {
+    // Calculate crime sub-index (always normalized by population, optionally by articles)
+    const { subIndex: S_crim_raw, crimeData } = calculateCrimeSubIndex(
+      articles,
+      quartiere,
+      selected_crimes,
+      options?.weightsForArticles
+    );
 
-    // Weighted risk index
-    const crimini_totali = Object.values(crime_data).reduce(
+    // Calculate POI sub-index
+    const poiCounts = poiCountsByQuartiere?.[quartiere] as
+      | Record<PoiType, number>
+      | undefined;
+    const S_poi_raw = poiCounts
+      ? calculatePoiSubIndex(poiCounts, selected_crimes)
+      : 0;
+
+    // Calculate socio-economic sub-index
+    const S_soc_raw = calculateSocioEconomicSubIndex(quartiere);
+
+    // Calculate event sub-index
+    const S_event_raw = calculateEventSubIndex(quartiere);
+
+    // Count total crimes and articles
+    const totalCrimes = Object.values(crimeData).reduce(
       (sum, c) => sum + c.frequenza,
       0
     );
-    for (const crime in filtered_crimes) {
-      if (crime_data[crime] && weights[crime]) {
-        const risk_index = crime_data[crime].frequenza * weights[crime];
-        crime_data[crime].crime_index = risk_index;
-      }
+    const articleCount = articles.filter(
+      (a) => a.quartiere === quartiere
+    ).length;
+
+    rawSubIndices[quartiere] = {
+      S_crim: S_crim_raw,
+      S_soc: S_soc_raw,
+      S_poi: S_poi_raw,
+      S_event: S_event_raw,
+      crimeData,
+      totalCrimes,
+      articleCount
+    };
+  }
+
+  // STEP 2: Normalize each sub-index using MinMax scaling (0-100)
+  // Normalize crime sub-index
+  const crimValues = quartieriList.map((q) => rawSubIndices[q]?.S_crim || 0);
+  const normalizedCrim = scaler.fit_transform(crimValues);
+
+  // Normalize POI sub-index
+  const poiValues = quartieriList.map((q) => rawSubIndices[q]?.S_poi || 0);
+  const normalizedPoi = scaler.fit_transform(poiValues);
+
+  // Apply normalized values
+  quartieriList.forEach((q, i) => {
+    if (rawSubIndices[q]) {
+      rawSubIndices[q]!.S_crim = normalizedCrim[i] || 0;
+      rawSubIndices[q]!.S_poi = normalizedPoi[i] || 0;
     }
+  });
+
+  // STEP 3: Calculate final CRI for each quartiere
+  for (const quartiere of quartieriList) {
+    const subIndices = rawSubIndices[quartiere];
+    if (!subIndices) continue;
+
+    const finalCRI = calculateFinalCRI(
+      {
+        S_crim: subIndices.S_crim,
+        S_soc: subIndices.S_soc,
+        S_poi: subIndices.S_poi,
+        S_event: subIndices.S_event
+      },
+      coefficients
+    );
 
     // Update quartieri_data
     const quartiereEntry = quartieri_data.find(
-      (quartiere: any) => quartiere.Quartiere === group
+      (q: any) => q.Quartiere === quartiere
     );
     if (quartiereEntry) {
-      quartiereEntry["Peso quartiere"] = group_df.length;
-      quartiereEntry["Totale crimini"] = crimini_totali;
+      quartiereEntry["Peso quartiere"] = subIndices.articleCount;
+      quartiereEntry["Totale crimini"] = subIndices.totalCrimes;
+      quartiereEntry["Indice di rischio"] = finalCRI;
+
+      // Store sub-indices for transparency/explainability
+      quartiereEntry["S_crim"] = subIndices.S_crim;
+      quartiereEntry["S_poi"] = subIndices.S_poi;
+      quartiereEntry["S_soc"] = subIndices.S_soc;
+      quartiereEntry["S_event"] = subIndices.S_event;
     }
 
-    // Risk index by quartiere
-    let indice_di_rischio_totale = Object.values(crime_data).reduce(
-      (sum, c) => sum + c.crime_index,
-      0
-    );
-
-    if (weightsForArticles) {
-      indice_di_rischio_totale = indice_di_rischio_totale / group_df.length;
-    }
-    if (weightsForPeople) {
-      const population = number_of_people[group];
-      if (population) {
-        indice_di_rischio_totale = indice_di_rischio_totale / population;
-      }
-    }
-
-    if (minmaxScaler) {
-      const np_values = Object.values(crime_data).map((c) => c.crime_index);
-      const scaled_values = scaler.fit_transform(np_values);
-      let idx = 0;
-      for (const crime in crime_data) {
-        if (crime_data[crime]) {
-          crime_data[crime].crime_index = scaled_values[idx]!;
-          idx++;
-        }
-      }
-    }
-
-    // Add to GeoJSON
+    // Update GeoJSON feature
     const feature = geojson_data.features.find(
-      (f: any) => f.properties.python_id === group
+      (f: any) => f.properties.python_id === quartiere
     );
     if (feature) {
-      feature.properties.crimini = crime_data;
-    }
-
-    // Save risk index
-    if (quartiereEntry) {
-      if (weightsForPeople) {
-        quartiereEntry["Indice di rischio"] = indice_di_rischio_totale * 10000;
-      } else {
-        quartiereEntry["Indice di rischio"] = indice_di_rischio_totale;
+      // Normalize individual crime indices within quartiere for visualization
+      const crimeIndices = Object.values(subIndices.crimeData).map(
+        (c) => c.crime_index
+      );
+      const normalizedCrimeIndices = scaler.fit_transform(crimeIndices);
+      let idx = 0;
+      for (const crime of Object.keys(subIndices.crimeData)) {
+        subIndices.crimeData[crime]!.crime_index =
+          normalizedCrimeIndices[idx] || 0;
+        idx++;
       }
+      feature.properties.crimini = subIndices.crimeData;
     }
   }
 
-  // Scale overall risk index
+  // STEP 4: Scale overall risk indices
   const riskIndices = quartieri_data.map(
-    (quartiere: any) => quartiere["Indice di rischio"]
+    (q: any) => q["Indice di rischio"] || 0
   );
   const scaledRiskIndices = scaler.fit_transform(riskIndices);
   quartieri_data.forEach((quartiere: any, i: number) => {
     quartiere["Indice di rischio scalato"] = scaledRiskIndices[i];
   });
 
-  geojson_data.weightsForArticles = weightsForArticles;
-  geojson_data.weightsForPeople = weightsForPeople;
-  geojson_data.minmaxScaler = minmaxScaler;
+  // Store metadata in GeoJSON
+  geojson_data.subIndexCoefficients = coefficients;
+  geojson_data.formula =
+    "CRI = (K_crim*S_crim + K_soc*S_soc + K_poi*S_poi + K_event*S_event) / (K_crim + K_soc + K_poi + K_event)";
 
   return geojson_data;
 };
 
+// STATISTICS CALCULATION
 export const calculate_statistics = (
   quartieri_data: any[],
   geojson_data: any
@@ -236,15 +426,22 @@ export const calculate_statistics = (
     }
 
     const quartiere = row["Quartiere"];
-    const crimini_totali = row["Totale crimini"];
-    const crime_index = row["Indice di rischio"];
-    const crime_index_scalato = row["Indice di rischio scalato"];
+    const crimini_totali = row["Totale crimini"] || 0;
+    const crime_index = row["Indice di rischio"] || 0;
+    const crime_index_scalato = row["Indice di rischio scalato"] || 0;
 
     statistiche_dict[quartiere] = {
       crimini_totali: crimini_totali,
       crime_index: Number(crime_index.toFixed(2)),
       crime_index_scalato: Number(crime_index_scalato.toFixed(2)),
-      population: number_of_people[quartiere] || 0
+      population: number_of_people[quartiere] || 0,
+      // Sub-indices for explainability
+      sub_indices: {
+        S_crim: Number((row["S_crim"] || 0).toFixed(2)),
+        S_poi: Number((row["S_poi"] || 0).toFixed(2)),
+        S_soc: Number((row["S_soc"] || 0).toFixed(2)),
+        S_event: Number((row["S_event"] || 0).toFixed(2))
+      }
     };
   });
 

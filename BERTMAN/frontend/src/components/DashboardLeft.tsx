@@ -97,11 +97,13 @@ function DashboardLeft({
         "san-girolamo_fesca": 1
       },
       weights: {
-        num_of_articles: 1,
-        num_of_people: 0
+        num_of_articles: 1
       },
-      scaling: {
-        minmax: 1
+      poi: {
+        bar: 1,
+        scommesse: 1,
+        bancomat: 1,
+        stazione: 1
       },
       dates: {
         startDate: null,
@@ -502,6 +504,62 @@ function DashboardLeft({
 
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1">
+              <label className="text-lg font-medium">Filter by POI</label>
+              <Tooltip>
+                <TooltipTrigger asChild={true}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-full">
+                    <Info className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-sm">
+                    Select which Points of Interest to include in the analysis.
+                    Please note that this will change the index's value
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="flex flex-row flex-wrap gap-3">
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={filters.poi["bar"] === 1}
+                  onCheckedChange={() => handleFiltersChange("bar", "poi")}
+                />
+                <span className="text-sm">Bar</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={filters.poi["scommesse"] === 1}
+                  onCheckedChange={() =>
+                    handleFiltersChange("scommesse", "poi")
+                  }
+                />
+                <span className="text-sm">Betting shops</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={filters.poi["bancomat"] === 1}
+                  onCheckedChange={() => handleFiltersChange("bancomat", "poi")}
+                />
+                <span className="text-sm">ATM</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={filters.poi["stazione"] === 1}
+                  onCheckedChange={() => handleFiltersChange("stazione", "poi")}
+                />
+                <span className="text-sm">Station</span>
+              </label>
+            </div>
+          </div>
+
+          <Separator className="my-1" />
+
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1">
               <label className="text-lg font-medium">Weights</label>
               <Tooltip>
                 <TooltipTrigger asChild={true}>
@@ -543,74 +601,6 @@ function DashboardLeft({
                     <p className="text-sm">
                       Divides the crime index by the total number of articles
                       for that neighborhood in the database
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <div className="flex items-center">
-                <label className="flex cursor-pointer items-center gap-2">
-                  <Checkbox
-                    checked={filters.weights["num_of_people"] === 1}
-                    onCheckedChange={() =>
-                      handleFiltersChange("num_of_people", "weights")
-                    }
-                  />
-                  <span className="text-sm">Number of people</span>
-                </label>
-                <Tooltip>
-                  <TooltipTrigger asChild={true}>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 rounded-full">
-                      <Info className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-sm">
-                      Divides the crime index by the number of people for that
-                      neighborhood. <br />
-                      <b>WARNING</b>: to prevent the index from being rounded to
-                      0, it will be multiplied by 10.000
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-          </div>
-
-          <Separator className="my-1" />
-
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-1">
-              <label className="text-lg font-medium">Scaling</label>
-            </div>
-            <div className="flex flex-row flex-wrap gap-3">
-              <div className="flex items-center">
-                <label className="flex cursor-pointer items-center gap-2">
-                  <Checkbox
-                    checked={filters.scaling["minmax"] === 1}
-                    onCheckedChange={() =>
-                      handleFiltersChange("minmax", "scaling")
-                    }
-                  />
-                  <span className="text-sm">Minmax scaler</span>
-                </label>
-                <Tooltip>
-                  <TooltipTrigger asChild={true}>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 rounded-full">
-                      <Info className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-sm">
-                      Scale the indices into a [0,100] range. Note that this way
-                      there will always be an element with index 0 (min) and an
-                      element with index 100 (max). The colors of the map will
-                      be based on the scaled value.
                     </p>
                   </TooltipContent>
                 </Tooltip>

@@ -69,9 +69,7 @@ router.get("/get-data", (req: Request, res: Response) => {
   let endDate = (req.query.endDate as string) || "";
   let crimes = (req.query.crimes as string) || "";
   let quartieri = (req.query.quartieri as string) || "";
-  const weightsForArticles = req.query.weightsForArticles !== "false";
-  const weightsForPeople = req.query.weightsForPeople === "true";
-  const minmaxScaler = req.query.minmaxScaler !== "false";
+  const weightsForArticles = req.query.weightsForArticles === "true";
 
   // Validate and normalize dates
   const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -224,30 +222,24 @@ router.get("/get-data", (req: Request, res: Response) => {
         }
       });
 
-      // Analysis
-      const analyzed_geojson = analyze_quartieri(
-        articles_df,
-        quartieri_data,
-        geojson_data,
-        crimesList,
-        weightsForArticles,
-        weightsForPeople,
-        minmaxScaler
-      );
-
-      // Statistics
-      const final_geojson = calculate_statistics(
-        quartieri_data,
-        analyzed_geojson
-      );
-
       // Get POI filtered by selected quartieri
       const poi_json = loadPOIGeometry();
-      const filtered_poi = poi_json.filter((poi: any) =>
+
+      let filtered_poi = poi_json.filter((poi: any) =>
         quartieriList.includes(poi.quartiere_id)
       );
 
-      // Calculate POI counts per quartiere
+      // Filter by POI type if parameter is provided
+      if (req.query.poi !== undefined) {
+        const poiTypesParam = req.query.poi as string;
+        const selectedPoiTypes = poiTypesParam ? poiTypesParam.split(",") : [];
+
+        filtered_poi = filtered_poi.filter((poi: any) =>
+          selectedPoiTypes.includes(poi.tipo_poi)
+        );
+      }
+
+      // Calculate POI counts per quartiere (needed for S_poi sub-index)
       const poiCountsByQuartiere: { [key: string]: { [key: string]: number } } =
         {};
       filtered_poi.forEach((poi: any) => {
@@ -267,6 +259,28 @@ router.get("/get-data", (req: Request, res: Response) => {
           quartierePoiCounts[poi.tipo_poi]!++;
         }
       });
+
+      // Analysis with new CRI formula
+      const analyzed_geojson = analyze_quartieri(
+        articles_df,
+        quartieri_data,
+        geojson_data,
+        crimesList,
+        poiCountsByQuartiere,
+        {
+          enableCrimeSubIndex: true,
+          enablePoiSubIndex: req.query.poi !== "",
+          enableSocioEconomicSubIndex: false,
+          enableEventSubIndex: false,
+          weightsForArticles: weightsForArticles
+        }
+      );
+
+      // Statistics
+      const final_geojson = calculate_statistics(
+        quartieri_data,
+        analyzed_geojson
+      );
 
       // Add POI counts to each feature's properties
       final_geojson.features.forEach((feature: any) => {

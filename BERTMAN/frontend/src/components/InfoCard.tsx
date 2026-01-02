@@ -1,6 +1,5 @@
 import { getCrimeName } from "../helpers/utils";
 import { Crime, POICounts } from "../types/global";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
 type Props = {
@@ -8,8 +7,6 @@ type Props = {
   crime_index: number | null;
   population: number;
   crimes: Crime[];
-  weights: { [key: string]: boolean } | null;
-  minmax: boolean;
   poi_counts?: POICounts;
 };
 
@@ -26,8 +23,6 @@ function InfoCard({
   crime_index,
   population,
   crimes,
-  weights,
-  minmax,
   poi_counts
 }: Props) {
   const numberOfCrimes = crimes.reduce(
@@ -44,19 +39,6 @@ function InfoCard({
 
   return (
     <div className="info-card bg-foreground text-background">
-      {weights &&
-        Object.keys(weights).some((weight: string) => weights[weight]) && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            <p className="text-base font-bold">Weights and scaling:</p>
-            {minmax && <Badge variant="default">MINMAX SCALED</Badge>}
-            {weights.num_of_articles && (
-              <Badge variant="default">NO. OF ARTICLES</Badge>
-            )}
-            {weights.num_of_people && (
-              <Badge variant="default">NO. OF PEOPLE</Badge>
-            )}
-          </div>
-        )}
       <h3 className="text-lg font-bold">{name || "Neighborhood"}</h3>
       <p>
         Crime index: {crime_index}
