@@ -78,3 +78,12 @@ export type Filters = {
     [key: string]: Date | null;
   };
 };
+
+export type POI = {
+  tipo_poi: string;
+  quartiere_id: string;
+  geometry: {
+    type: "Point";
+    coordinates: [number, number];
+  };
+};

@@ -131,16 +131,12 @@
 }
 
 .rdp-root {
-  --rdp-range_start-background: linear-gradient(
-    var(--rdp-gradient-direction),
-    transparent 50%,
-    var(--accent) 50%
-  );
-  --rdp-range_end-background: linear-gradient(
-    var(--rdp-gradient-direction),
-    var(--accent) 50%,
-    transparent 50%
-  );
+  --rdp-range_start-background: linear-gradient(var(--rdp-gradient-direction),
+      transparent 50%,
+      var(--accent) 50%);
+  --rdp-range_end-background: linear-gradient(var(--rdp-gradient-direction),
+      var(--accent) 50%,
+      transparent 50%);
   --rdp-today-color: var(--foreground);
 }
 
@@ -220,6 +216,18 @@
   right: 16px;
 }
 
+.poi-legend {
+  position: absolute;
+  border-radius: 4px;
+  overflow: hidden;
+  width: fit-content;
+  height: fit-content;
+  z-index: 1500;
+  padding: 16px;
+  top: 16px;
+  left: 140px;
+}
+
 .hidden-input {
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
@@ -252,6 +260,11 @@
   .legend-card {
     top: 32px;
     left: 64px;
+  }
+
+  .poi-legend {
+    top: 32px;
+    left: 180px;
   }
 }
 

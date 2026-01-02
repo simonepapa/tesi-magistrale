@@ -5,23 +5,51 @@ import { analyze_quartieri, calculate_statistics } from "../utils";
 
 const router = Router();
 const dbPath = "../database.db";
-const quartieriJsonPath = "../classifier/data/quartieri.json";
+const quartieriJsonPath = "../classifier/data/quartieri_poi.geojson";
 
-// Cache quartieri.json in memory as it is static and not expected to change
+// Cache quartieri and POI geometry in memory as they are static
 let quartieriGeometryCache: any = null;
+let poiGeometryCache: any = null;
 
 function loadQuartieriGeometry() {
   if (!quartieriGeometryCache) {
     try {
       const data = fs.readFileSync(quartieriJsonPath, "utf8");
-      quartieriGeometryCache = JSON.parse(data);
-      console.log("Loaded quartieri.json into cache");
+      const geojson = JSON.parse(data);
+      // Extract quartieri from the GeoJSON FeatureCollection
+      quartieriGeometryCache = geojson.features
+        .filter(
+          (feature: any) => feature.properties.entity_type === "quartiere"
+        )
+        .map((feature: any) => ({
+          name: feature.properties.name,
+          python_id: feature.properties.python_id,
+          geometry: feature.geometry
+        }));
+      // Extract POI from the GeoJSON FeatureCollection
+      poiGeometryCache = geojson.features
+        .filter((feature: any) => feature.properties.entity_type === "point")
+        .map((feature: any) => ({
+          tipo_poi: feature.properties.tipo_poi,
+          quartiere_id: feature.properties.quartiere_id,
+          geometry: feature.geometry
+        }));
+      console.log(
+        `Loaded quartieri_poi.geojson into cache: ${quartieriGeometryCache.length} quartieri, ${poiGeometryCache.length} POI`
+      );
     } catch (err) {
-      console.error("Failed to load quartieri.json:", err);
+      console.error("Failed to load quartieri_poi.geojson:", err);
       throw err;
     }
   }
   return quartieriGeometryCache;
+}
+
+function loadPOIGeometry() {
+  if (!poiGeometryCache) {
+    loadQuartieriGeometry();
+  }
+  return poiGeometryCache;
 }
 
 // Load quartieri data at server startup
@@ -213,10 +241,22 @@ router.get("/get-data", (req: Request, res: Response) => {
         analyzed_geojson
       );
 
-      res.json(final_geojson);
+      // Get POI filtered by selected quartieri
+      const poi_json = loadPOIGeometry();
+      const filtered_poi = poi_json.filter((poi: any) =>
+        quartieriList.includes(poi.quartiere_id)
+      );
+
+      // Add POI to response
+      const response = {
+        ...final_geojson,
+        poi: filtered_poi
+      };
+
+      res.json(response);
       db.close();
     } catch (err) {
-      res.status(500).json({ error: "Could not read quartieri.json" });
+      res.status(500).json({ error: "Could not read quartieri_poi.geojson" });
       db.close();
       return;
     }

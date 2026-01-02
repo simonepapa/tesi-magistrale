@@ -2,9 +2,11 @@ import ChoroplethLegend from "../components/ChoroplethLegend";
 import ChoroplethMap from "../components/ChoroplethMap";
 import DashboardLeft from "../components/DashboardLeft";
 import InfoCard from "../components/InfoCard";
+import POILegend from "../components/POILegend";
 import Plots from "../components/Plots";
 import useFetchArticles from "../helpers/hooks/useFetchArticles";
-import { Filters, InfoQuartiere } from "../types/global";
+import { Filters, InfoQuartiere, POI } from "../types/global";
+import POIMarkers from "@/components/POIMarkers";
 import {
   Collapsible,
   CollapsibleContent,
@@ -90,6 +92,7 @@ function Dashboard() {
     minmax: true
   });
   const [data, setData] = useState<GeoJsonObject | null>(null);
+  const [poi, setPoi] = useState<POI[]>([]);
   const [legendValues, setLegendValues] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +171,8 @@ function Dashboard() {
 
       const jsonData = await response.json();
       setData(jsonData);
+      // Extract POI from response
+      setPoi(jsonData.poi || []);
 
       // Create legend
       const crimeIndexes: number[] = [];
@@ -288,6 +293,7 @@ function Dashboard() {
                 minmax={info.minmax}
                 legendValues={legendValues}
               />
+              {poi.length > 0 && <POIMarkers poi={poi} />}
             </MapContainer>
           )}
           <ChoroplethLegend
@@ -295,6 +301,7 @@ function Dashboard() {
             palette={palette}
             legendValues={legendValues}
           />
+          <POILegend visible={poi.length > 0} />
         </div>
 
         {data && (
