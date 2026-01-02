@@ -15,9 +15,9 @@ function loadQuartieriGeometry() {
     try {
       const data = fs.readFileSync(quartieriJsonPath, "utf8");
       quartieriGeometryCache = JSON.parse(data);
-      console.log("✅ Loaded quartieri.json into cache");
+      console.log("Loaded quartieri.json into cache");
     } catch (err) {
-      console.error("❌ Failed to load quartieri.json:", err);
+      console.error("Failed to load quartieri.json:", err);
       throw err;
     }
   }

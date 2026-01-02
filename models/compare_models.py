@@ -557,7 +557,7 @@ def run_full_evaluation(model_entries: List[Tuple[str, str]], dataset_path: str 
     # Main metrics comparison
     main_metrics = ["f1_macro", "f1_micro", "accuracy", "precision_macro", "recall_macro", "roc_auc_macro"]
     
-    print("\n📊 MAIN METRICS:")
+    print("\nMAIN METRICS:")
     print("-" * 80)
     
     # Header with short names (max 10 chars each)
@@ -582,14 +582,14 @@ def run_full_evaluation(model_entries: List[Tuple[str, str]], dataset_path: str 
         print(row)
     
     print("-" * 80)
-    print(f"\n🏆 Best: {sorted_models[0]} (F1 Macro: {all_metrics[sorted_models[0]]['f1_macro']:.4f})")
+    print(f"\nBest: {sorted_models[0]} (F1 Macro: {all_metrics[sorted_models[0]]['f1_macro']:.4f})")
     
     # Legend
     print("\nLegend: TP=Two-Phase, Std=Standard, mDeB=mDeBERTa, UmB=UmBERTo")
     
     # Per-class F1 comparison
     print(f"\n{'─'*80}")
-    print("📋 Per-Class F1 Scores:")
+    print("Per-Class F1 Scores:")
     print(f"{'─'*80}")
     
     # Use shortened names in header
@@ -625,7 +625,7 @@ def run_full_evaluation(model_entries: List[Tuple[str, str]], dataset_path: str 
     models_with_preds = [m for m in model_names if all_preds.get(m) is not None]
     if len(models_with_preds) >= 2:
         print(f"\n{'─'*80}")
-        print("🤝 Prediction Agreement (pairwise):")
+        print("Prediction Agreement (pairwise):")
         for i, m1 in enumerate(models_with_preds):
             for m2 in models_with_preds[i+1:]:
                 agreement = np.sum(all_preds[m1] == all_preds[m2])

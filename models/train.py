@@ -816,7 +816,7 @@ def train_two_phase(args):
     print("TWO-PHASE TRAINING COMPLETE!")
     
     
-    print("\n📊 RESULTS COMPARISON:")
+    print("\nRESULTS COMPARISON:")
     print("-"*60)
     print(f"{'Metric':<25} {'Phase 1':<15} {'Phase 2':<15} {'Change':<15}")
     print("-"*60)
@@ -830,7 +830,7 @@ def train_two_phase(args):
     
     print("-"*60)
     
-    print(f"\n📁 Results saved to: {model_dir}/")
+    print(f"\nResults saved to: {model_dir}/")
     print(f"  - Phase 1 Model: {phase1_output_dir}/")
     print(f"  - Phase 2 Model (Final): {phase2_output_dir}/")
     print(f"  - Training Info: {model_dir}/training_info.json")

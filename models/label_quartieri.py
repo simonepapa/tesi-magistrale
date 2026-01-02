@@ -98,7 +98,7 @@ def merge_all_files(output_dir: str):
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(merged_data, f, ensure_ascii=False, indent=2)
     
-    print(f"\n📁 Merged: {total_articles} total news → {output_file}")
+    print(f"\nMerged: {total_articles} total news → {output_file}")
     return output_file
 
 

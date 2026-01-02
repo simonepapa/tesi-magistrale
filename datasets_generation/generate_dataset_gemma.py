@@ -392,7 +392,7 @@ def generate_crime_news(batches, streets, output_dir, categories=None, skip_mult
     if categories:
         selected_categories = {k: v for k, v in categorie_crimine.items() if k in categories}
         if not selected_categories:
-            print(f"⚠️ No valid categories found in: {categories}")
+            print(f"No valid categories found in: {categories}")
             print(f"Valid categories: {list(categorie_crimine.keys())}")
             return dataset
     else:
