@@ -339,7 +339,8 @@ function Plots({ data, articles, filters }: Props) {
                       "Socio-Eco":
                         filters.subIndices?.socioEconomic === 1
                           ? subIndices.S_soc
-                          : 0
+                          : 0,
+                      Event: subIndices.S_event > 0 ? subIndices.S_event : 0
                     }
                   ];
 
@@ -399,6 +400,17 @@ function Plots({ data, articles, filters }: Props) {
                                   </span>
                                 </div>
                               )}
+                              {subIndices.S_event > 0 && (
+                                <div className="flex items-center justify-between">
+                                  <span className="flex items-center gap-2">
+                                    <div className="h-3 w-3 rounded bg-green-500" />
+                                    Event Index
+                                  </span>
+                                  <span className="font-semibold">
+                                    {subIndices.S_event.toFixed(1)}
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -414,6 +426,9 @@ function Plots({ data, articles, filters }: Props) {
                                   : 0) +
                                 (filters.subIndices?.socioEconomic === 1
                                   ? subIndices.S_soc
+                                  : 0) +
+                                (subIndices.S_event > 0
+                                  ? subIndices.S_event
                                   : 0);
                               const crimeContrib =
                                 sumOfActive > 0
@@ -427,6 +442,10 @@ function Plots({ data, articles, filters }: Props) {
                                 sumOfActive > 0 &&
                                 filters.subIndices?.socioEconomic === 1
                                   ? (subIndices.S_soc / sumOfActive) * 100
+                                  : 0;
+                              const eventContrib =
+                                sumOfActive > 0 && subIndices.S_event > 0
+                                  ? (subIndices.S_event / sumOfActive) * 100
                                   : 0;
 
                               return (
@@ -462,6 +481,17 @@ function Plots({ data, articles, filters }: Props) {
                                       </span>
                                     </div>
                                   )}
+                                  {subIndices.S_event > 0 && (
+                                    <div className="flex items-center justify-between">
+                                      <span className="flex items-center gap-2">
+                                        <div className="h-3 w-3 rounded bg-green-500" />
+                                        Event
+                                      </span>
+                                      <span className="font-semibold">
+                                        {eventContrib.toFixed(1)}%
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })()}
@@ -483,6 +513,10 @@ function Plots({ data, articles, filters }: Props) {
                                 "Socio-Eco": {
                                   label: "Socio-Economic Index",
                                   color: "#3b82f6"
+                                },
+                                Event: {
+                                  label: "Event Index",
+                                  color: "#22c55e"
                                 }
                               } satisfies ChartConfig
                             }
@@ -529,6 +563,14 @@ function Plots({ data, articles, filters }: Props) {
                                     dataKey="Socio-Eco"
                                     stackId="a"
                                     fill="#3b82f6"
+                                    radius={[0, 4, 4, 0]}
+                                  />
+                                )}
+                                {subIndices.S_event > 0 && (
+                                  <Bar
+                                    dataKey="Event"
+                                    stackId="a"
+                                    fill="#22c55e"
                                     radius={[0, 4, 4, 0]}
                                   />
                                 )}

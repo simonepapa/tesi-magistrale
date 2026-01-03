@@ -52,9 +52,12 @@ function DashboardLeft({
     setPalette(color);
   };
 
-  const handleFiltersChange = (crime: string, type: keyof Filters) => {
+  const handleFiltersChange = (
+    crime: string,
+    type: "crimes" | "quartieri" | "weights" | "poi" | "subIndices"
+  ) => {
     // State copy
-    const filtersCopy: Filters = { ...filters };
+    const filtersCopy = { ...filters };
 
     filtersCopy[type][crime] = filtersCopy[type][crime] === 1 ? 0 : 1;
 
@@ -111,12 +114,14 @@ function DashboardLeft({
       },
       subIndices: {
         poi: 1,
-        socioEconomic: 1
+        socioEconomic: 1,
+        event: 0
       },
       dates: {
         startDate: null,
         endDate: null
-      }
+      },
+      eventSubIndexVersion: 1
     });
     handleResetDate();
   };
@@ -233,6 +238,21 @@ function DashboardLeft({
                   }}
                 />
                 <span className="text-sm">Socio-Economic Sub-Index</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={filters.subIndices.event === 1}
+                  onCheckedChange={() => {
+                    setFilters((prev) => ({
+                      ...prev,
+                      subIndices: {
+                        ...prev.subIndices,
+                        event: prev.subIndices.event === 1 ? 0 : 1
+                      }
+                    }));
+                  }}
+                />
+                <span className="text-sm">Event Sub-Index</span>
               </label>
             </div>
           </div>
@@ -693,6 +713,57 @@ function DashboardLeft({
               </div>
             </div>
           </div>
+
+          {filters.subIndices.event === 1 && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <label className="text-lg font-medium">
+                  Event Index Version
+                </label>
+                <Tooltip>
+                  <TooltipTrigger asChild={true}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 rounded-full">
+                      <Info className="h-5 w-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-[200px] text-sm">
+                      V1: Uses aggregate crime counts amplified by event
+                      windows.
+                      <br />
+                      V2: Only amplifies crimes that actually occurred during
+                      events.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <RadioGroup
+                value={String(filters.eventSubIndexVersion)}
+                onValueChange={(value) =>
+                  setFilters({
+                    ...filters,
+                    eventSubIndexVersion: value === "2" ? 2 : 1
+                  })
+                }
+                className="flex flex-row gap-4">
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="1" id="event-v1" />
+                  <Label htmlFor="event-v1" className="cursor-pointer text-sm">
+                    V1 (Aggregate)
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="2" id="event-v2" />
+                  <Label htmlFor="event-v2" className="cursor-pointer text-sm">
+                    V2 (Article-based)
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+          )}
         </div>
         <Button
           className="!mx-auto !mt-4 w-full sm:!mr-0 sm:!ml-auto"

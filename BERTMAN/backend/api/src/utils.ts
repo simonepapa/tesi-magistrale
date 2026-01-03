@@ -147,6 +147,157 @@ export const crimePoiAffinity: Record<string, Record<PoiType, number>> = {
   truffa: { bar: 0.2, scommesse: 0.6, bancomat: 0.7, stazione: 0.3 }
 };
 
+// EVENT SUB-INDEX DATA STRUCTURES
+// Helper function to calculate Easter date (Computus algorithm)
+function getEasterDate(year: number): Date {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31) - 1; // 0-indexed
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month, day);
+}
+
+// Event definitions with temporal window functions
+interface EventDefinition {
+  id: string;
+  name: string;
+  getWindow: (year: number) => { start: Date; end: Date };
+}
+
+const eventDefinitions: EventDefinition[] = [
+  {
+    id: "natale",
+    name: "Natale",
+    getWindow: (year) => ({
+      start: new Date(year, 11, 23),
+      end: new Date(year, 11, 26)
+    })
+  },
+  {
+    id: "capodanno",
+    name: "Capodanno",
+    getWindow: (year) => ({
+      start: new Date(year, 11, 30),
+      end: new Date(year + 1, 0, 1)
+    })
+  },
+  {
+    id: "pasqua",
+    name: "Pasqua",
+    getWindow: (year) => {
+      const easter = getEasterDate(year);
+      const start = new Date(easter);
+      start.setDate(easter.getDate() - 2); // 2 days before
+      const end = new Date(easter);
+      end.setDate(easter.getDate() + 1); // 1 day after
+      return { start, end };
+    }
+  },
+  {
+    id: "ferragosto",
+    name: "Ferragosto",
+    getWindow: (year) => ({
+      start: new Date(year, 7, 14),
+      end: new Date(year, 7, 16)
+    })
+  },
+  {
+    id: "san_nicola",
+    name: "Festa di San Nicola",
+    getWindow: (year) => ({
+      start: new Date(year, 4, 7),
+      end: new Date(year, 4, 9)
+    })
+  },
+  {
+    id: "epifania",
+    name: "Epifania",
+    getWindow: (year) => ({
+      start: new Date(year, 0, 5),
+      end: new Date(year, 0, 6)
+    })
+  },
+  {
+    id: "liberazione_lavoro",
+    name: "Ponte della Liberazione e Festa dei Lavoratori",
+    getWindow: (year) => ({
+      start: new Date(year, 3, 25),
+      end: new Date(year, 4, 1)
+    })
+  }
+];
+
+// Amplification coefficients μ_i,e (crime × event)
+// Values > 1 mean increased risk, 1 = no change, < 1 = decreased risk
+const amplificationCoefficients: Record<string, Record<string, number>> = {
+  natale: {
+    furto: 1.4,
+    rapina: 1.3,
+    truffa: 1.5,
+    spaccio: 1.1,
+    aggressione: 1.2
+  },
+  capodanno: {
+    aggressione: 1.5,
+    spaccio: 1.3,
+    furto: 1.2,
+    rapina: 1.2
+  },
+  pasqua: {
+    furto: 1.2,
+    aggressione: 1.1,
+    truffa: 1.2
+  },
+  ferragosto: {
+    aggressione: 1.4,
+    spaccio: 1.3,
+    furto: 1.3,
+    rapina: 1.2,
+    violenza_sessuale: 1.2
+  },
+  san_nicola: {
+    furto: 1.3,
+    aggressione: 1.2,
+    spaccio: 1.1
+  },
+  epifania: {
+    furto: 1.2,
+    aggressione: 1.15,
+    spaccio: 1.1,
+    rapina: 1.1
+  },
+  liberazione_lavoro: {
+    furto: 1.2,
+    aggressione: 1.15,
+    spaccio: 1.1,
+    rapina: 1.1
+  }
+};
+
+// Check if a date falls within an event's window
+function isDateInEventWindow(date: Date, event: EventDefinition): boolean {
+  const year = date.getFullYear();
+  const window = event.getWindow(year);
+  return date >= window.start && date <= window.end;
+}
+
+// Get all active events for a given date
+function getActiveEvents(date: Date): string[] {
+  return eventDefinitions
+    .filter((event) => isDateInEventWindow(date, event))
+    .map((event) => event.id);
+}
+
 // MinMax Scaler class for normalization (always applied)
 class MinMaxScaler {
   min: number;
@@ -276,14 +427,106 @@ function calculateSocioEconomicSubIndex(quartiere: string): number {
 }
 
 // SUB-INDEX 4: Temporal Events Sub-index (S_event)
-// Formula: S_event,j,t = Σ_e (I_e,j,t * δ_e)
+// Formula: S_event,j,t = Σ_e [I_e,t × Σ_i (n_i,j × w_i × μ_i,e)]
+// Aggregation: Mean over all days in range
 function calculateEventSubIndex(
-  _quartiere: string,
-  _timestamp?: Date,
-  _activeEvents?: Array<{ eventId: string; impactCoefficient: number }>
+  quartiere: string,
+  crimeData: Record<string, { frequenza: number; crime_index: number }>,
+  startDate?: Date,
+  endDate?: Date
 ): number {
-  // To be developed as soon as data is available
-  return 0;
+  // If no dates provided, return 0
+  if (!startDate || !endDate) {
+    return 0;
+  }
+
+  // Calculate total days in range
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const totalDays =
+    Math.ceil((endDate.getTime() - startDate.getTime()) / msPerDay) + 1;
+
+  if (totalDays <= 0) return 0;
+
+  let totalEventScore = 0;
+
+  // Iterate through each day in the range
+  const currentDate = new Date(startDate);
+  while (currentDate <= endDate) {
+    // Get active events for this day
+    const activeEventsForDay = getActiveEvents(currentDate);
+
+    // For each active event, calculate S_event,j,t for this day
+    for (const eventId of activeEventsForDay) {
+      const eventAmplifications = amplificationCoefficients[eventId] || {};
+
+      let eventDayScore = 0;
+      for (const [crime, data] of Object.entries(crimeData)) {
+        const n_ij = data.frequenza; // crime count for this crime in this quartiere
+        const w_i = crimeWeights[crime] || 0; // crime weight
+        const mu_ie = eventAmplifications[crime] || 1.0; // amplification (default 1 = no change)
+
+        // Only add if there's amplification (μ > 1)
+        if (mu_ie > 1) {
+          // ADDITIONAL risk from the event (μ - 1)
+          // e.g. if μ = 1.3, add 30% extra risk
+          eventDayScore += n_ij * w_i * (mu_ie - 1);
+        }
+      }
+
+      totalEventScore += eventDayScore;
+    }
+
+    // Move to next day
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  // Aggregate: mean over all days
+  return totalEventScore / totalDays;
+}
+
+// SUB-INDEX 4 (V2)
+// This version only amplifies crimes that ACTUALLY occurred during event windows
+// More precise than V1 which uses aggregate crime counts
+function calculateEventSubIndexV2(
+  articles: any[],
+  quartiere: string,
+  selectedCrimes: string[]
+): number {
+  // Filter articles for this quartiere
+  const quartiereArticles = articles.filter((a) => a.quartiere === quartiere);
+
+  if (quartiereArticles.length === 0) return 0;
+
+  let eventScore = 0;
+
+  for (const article of quartiereArticles) {
+    const articleDate = new Date(article.date);
+    const activeEvents = getActiveEvents(articleDate);
+
+    // Skip if no events active on this article's date
+    if (activeEvents.length === 0) continue;
+
+    // For each crime type in the article
+    for (const crime of selectedCrimes) {
+      if (article[crime] !== 1) continue; // Article doesn't contain this crime
+
+      // Apply amplification for each active event
+      for (const eventId of activeEvents) {
+        const eventAmplifications = amplificationCoefficients[eventId] || {};
+        const mu = eventAmplifications[crime] || 1.0;
+
+        if (mu > 1) {
+          // Add the EXTRA risk from the event
+          const w_i = crimeWeights[crime] || 0;
+          eventScore += w_i * (mu - 1);
+        }
+      }
+    }
+  }
+
+  // Normalize by population
+  const population = number_of_people[quartiere] || 1;
+  return eventScore / population;
 }
 
 // FINAL CRI FORMULA
@@ -329,6 +572,11 @@ export interface AnalysisOptions {
   enablePoiSubIndex?: boolean;
   enableEventSubIndex?: boolean;
   weightsForArticles?: boolean;
+  // Date range for event sub-index
+  startDate?: Date;
+  endDate?: Date;
+  // Event sub-index version: 1 = aggregate-based, 2 = article-based
+  eventSubIndexVersion?: 1 | 2;
 }
 
 export const analyze_quartieri = (
@@ -387,8 +635,24 @@ export const analyze_quartieri = (
     // Calculate socio-economic sub-index
     const S_soc_raw = calculateSocioEconomicSubIndex(quartiere);
 
-    // Calculate event sub-index
-    const S_event_raw = calculateEventSubIndex(quartiere);
+    // Calculate event sub-index (V1 or V2 based on option)
+    let S_event_raw = 0;
+    if (options?.eventSubIndexVersion === 2) {
+      // V2: Article-based - only amplifies crimes that occurred during events
+      S_event_raw = calculateEventSubIndexV2(
+        articles,
+        quartiere,
+        selected_crimes
+      );
+    } else {
+      // V1 (default): Aggregate-based - uses historical crime counts
+      S_event_raw = calculateEventSubIndex(
+        quartiere,
+        crimeData,
+        options?.startDate,
+        options?.endDate
+      );
+    }
 
     // Count total crimes and articles
     const totalCrimes = Object.values(crimeData).reduce(

@@ -94,6 +94,7 @@ export type Filters = {
   dates: {
     [key: string]: Date | null;
   };
+  eventSubIndexVersion: 1 | 2;
 };
 
 export type POI = {

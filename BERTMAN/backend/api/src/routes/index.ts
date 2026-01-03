@@ -73,6 +73,8 @@ router.get("/get-data", (req: Request, res: Response) => {
   const enablePoiSubIndex = req.query.enablePoiSubIndex !== "false"; // default true
   const enableSocioEconomicSubIndex =
     req.query.enableSocioEconomicSubIndex !== "false"; // default true
+  const enableEventSubIndex = req.query.enableEventSubIndex === "true"; // default false
+  const eventSubIndexVersion = req.query.eventSubIndexVersion === "2" ? 2 : 1; // default V1
 
   // Validate and normalize dates
   const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -274,8 +276,11 @@ router.get("/get-data", (req: Request, res: Response) => {
           enableCrimeSubIndex: true,
           enablePoiSubIndex: enablePoiSubIndex && req.query.poi !== "",
           enableSocioEconomicSubIndex: enableSocioEconomicSubIndex,
-          enableEventSubIndex: false,
-          weightsForArticles: weightsForArticles
+          enableEventSubIndex: enableEventSubIndex && !!(startDate && endDate),
+          weightsForArticles: weightsForArticles,
+          eventSubIndexVersion: eventSubIndexVersion,
+          ...(startDate && { startDate: new Date(startDate) }),
+          ...(endDate && { endDate: new Date(endDate) })
         }
       );
 

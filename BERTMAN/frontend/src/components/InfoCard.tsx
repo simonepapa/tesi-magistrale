@@ -110,6 +110,11 @@ function InfoCard({
                     Socio-Eco: {sub_indices.S_soc.toFixed(1)}
                   </div>
                 )}
+              {activeSubIndices?.event === 1 && sub_indices.S_event > 0 && (
+                <div className="rounded bg-green-500/20 px-2 py-0.5">
+                  Event: {sub_indices.S_event.toFixed(1)}
+                </div>
+              )}
             </div>
           </div>
         </>

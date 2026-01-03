@@ -73,12 +73,14 @@ function Dashboard() {
       },
       subIndices: {
         poi: 1,
-        socioEconomic: 1
+        socioEconomic: 1,
+        event: 0
       },
       dates: {
         startDate: urlStartDate ? new Date(urlStartDate) : null,
         endDate: urlEndDate ? new Date(urlEndDate) : null
-      }
+      },
+      eventSubIndexVersion: 1 as const
     };
   });
   const [tile, setTile] = useState<string>(
@@ -165,6 +167,10 @@ function Dashboard() {
       queryParams.push(
         `enableSocioEconomicSubIndex=${filters.subIndices.socioEconomic === 1 ? "true" : "false"}`
       );
+      queryParams.push(
+        `enableEventSubIndex=${filters.subIndices.event === 1 ? "true" : "false"}`
+      );
+      queryParams.push(`eventSubIndexVersion=${filters.eventSubIndexVersion}`);
 
       const queryString = queryParams.join("&");
 
