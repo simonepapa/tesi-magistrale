@@ -308,7 +308,7 @@ function Plots({ data, articles, filters }: Props) {
                     <TabsTrigger
                       key={feature.properties?.python_id}
                       value={feature.properties?.python_id}
-                      className="text-xs">
+                      className="hover:bg-primary/20 hover:text-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs transition-all duration-200">
                       {keyToLabels[feature.properties?.python_id] ||
                         feature.properties?.name}
                     </TabsTrigger>
@@ -340,7 +340,11 @@ function Plots({ data, articles, filters }: Props) {
                         filters.subIndices?.socioEconomic === 1
                           ? subIndices.S_soc
                           : 0,
-                      Event: subIndices.S_event > 0 ? subIndices.S_event : 0
+                      Event:
+                        filters.subIndices?.event === 1 &&
+                        subIndices.S_event > 0
+                          ? subIndices.S_event
+                          : 0
                     }
                   ];
 
@@ -400,17 +404,18 @@ function Plots({ data, articles, filters }: Props) {
                                   </span>
                                 </div>
                               )}
-                              {subIndices.S_event > 0 && (
-                                <div className="flex items-center justify-between">
-                                  <span className="flex items-center gap-2">
-                                    <div className="h-3 w-3 rounded bg-green-500" />
-                                    Event Index
-                                  </span>
-                                  <span className="font-semibold">
-                                    {subIndices.S_event.toFixed(1)}
-                                  </span>
-                                </div>
-                              )}
+                              {filters.subIndices?.event === 1 &&
+                                subIndices.S_event > 0 && (
+                                  <div className="flex items-center justify-between">
+                                    <span className="flex items-center gap-2">
+                                      <div className="h-3 w-3 rounded bg-green-500" />
+                                      Event Index
+                                    </span>
+                                    <span className="font-semibold">
+                                      {subIndices.S_event.toFixed(1)}
+                                    </span>
+                                  </div>
+                                )}
                             </div>
                           </div>
 
@@ -427,7 +432,8 @@ function Plots({ data, articles, filters }: Props) {
                                 (filters.subIndices?.socioEconomic === 1
                                   ? subIndices.S_soc
                                   : 0) +
-                                (subIndices.S_event > 0
+                                (filters.subIndices?.event === 1 &&
+                                subIndices.S_event > 0
                                   ? subIndices.S_event
                                   : 0);
                               const crimeContrib =
@@ -444,7 +450,9 @@ function Plots({ data, articles, filters }: Props) {
                                   ? (subIndices.S_soc / sumOfActive) * 100
                                   : 0;
                               const eventContrib =
-                                sumOfActive > 0 && subIndices.S_event > 0
+                                sumOfActive > 0 &&
+                                filters.subIndices?.event === 1 &&
+                                subIndices.S_event > 0
                                   ? (subIndices.S_event / sumOfActive) * 100
                                   : 0;
 
@@ -481,17 +489,18 @@ function Plots({ data, articles, filters }: Props) {
                                       </span>
                                     </div>
                                   )}
-                                  {subIndices.S_event > 0 && (
-                                    <div className="flex items-center justify-between">
-                                      <span className="flex items-center gap-2">
-                                        <div className="h-3 w-3 rounded bg-green-500" />
-                                        Event
-                                      </span>
-                                      <span className="font-semibold">
-                                        {eventContrib.toFixed(1)}%
-                                      </span>
-                                    </div>
-                                  )}
+                                  {filters.subIndices?.event === 1 &&
+                                    subIndices.S_event > 0 && (
+                                      <div className="flex items-center justify-between">
+                                        <span className="flex items-center gap-2">
+                                          <div className="h-3 w-3 rounded bg-green-500" />
+                                          Event
+                                        </span>
+                                        <span className="font-semibold">
+                                          {eventContrib.toFixed(1)}%
+                                        </span>
+                                      </div>
+                                    )}
                                 </div>
                               );
                             })()}
@@ -566,14 +575,15 @@ function Plots({ data, articles, filters }: Props) {
                                     radius={[0, 4, 4, 0]}
                                   />
                                 )}
-                                {subIndices.S_event > 0 && (
-                                  <Bar
-                                    dataKey="Event"
-                                    stackId="a"
-                                    fill="#22c55e"
-                                    radius={[0, 4, 4, 0]}
-                                  />
-                                )}
+                                {filters.subIndices?.event === 1 &&
+                                  subIndices.S_event > 0 && (
+                                    <Bar
+                                      dataKey="Event"
+                                      stackId="a"
+                                      fill="#22c55e"
+                                      radius={[0, 4, 4, 0]}
+                                    />
+                                  )}
                               </BarChart>
                             </ResponsiveContainer>
                           </ChartContainer>

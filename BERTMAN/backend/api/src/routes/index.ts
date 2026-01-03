@@ -70,10 +70,10 @@ router.get("/get-data", (req: Request, res: Response) => {
   let crimes = (req.query.crimes as string) || "";
   let quartieri = (req.query.quartieri as string) || "";
   const weightsForArticles = req.query.weightsForArticles === "true";
-  const enablePoiSubIndex = req.query.enablePoiSubIndex !== "false"; // default true
+  const enablePoiSubIndex = req.query.enablePoiSubIndex !== "false";
   const enableSocioEconomicSubIndex =
-    req.query.enableSocioEconomicSubIndex !== "false"; // default true
-  const enableEventSubIndex = req.query.enableEventSubIndex === "true"; // default false
+    req.query.enableSocioEconomicSubIndex !== "false";
+  const enableEventSubIndex = req.query.enableEventSubIndex === "true";
   const eventSubIndexVersion = req.query.eventSubIndexVersion === "2" ? 2 : 1; // default V1
 
   // Validate and normalize dates
