@@ -224,8 +224,8 @@
   height: fit-content;
   z-index: 1500;
   padding: 16px;
-  top: 16px;
-  left: 140px;
+  top: 148px;
+  right: 16px;
 }
 
 .hidden-input {
@@ -264,7 +264,7 @@
 
   .poi-legend {
     top: 32px;
-    left: 180px;
+    left: 220px;
   }
 }
 

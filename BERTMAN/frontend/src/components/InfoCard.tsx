@@ -18,9 +18,9 @@ type Props = {
 // POI labels and colors for display
 const poiConfig: { key: keyof POICounts; label: string; color: string }[] = [
   { key: "bar", label: "Bar", color: "#f59e0b" },
-  { key: "scommesse", label: "Scommesse", color: "#ef4444" },
-  { key: "bancomat", label: "Bancomat", color: "#3b82f6" },
-  { key: "stazione", label: "Stazione", color: "#22c55e" }
+  { key: "scommesse", label: "Betting shop", color: "#ef4444" },
+  { key: "bancomat", label: "ATM", color: "#3b82f6" },
+  { key: "stazione", label: "Station", color: "#22c55e" }
 ];
 
 function InfoCard({
@@ -117,10 +117,14 @@ function InfoCard({
       <Separator className="my-2" />
       <div className="flex gap-2 overflow-auto !p-0 xl:flex-col">
         {crimes.map((crime: Crime, index: number) => (
-          <div className="flex flex-col gap-0" key={index}>
-            <p className="text-base font-medium">{getCrimeName(crime.crime)}</p>
-            <p className="text-sm">{crime.frequency} cases</p>
-          </div>
+          <p key={index}>
+            <span className="text-sm font-medium">
+              {getCrimeName(crime.crime)}:{" "}
+            </span>
+            <span className="text-sm">
+              {crime.frequency} case{crime.frequency === 1 ? "" : "s"}
+            </span>
+          </p>
         ))}
       </div>
     </div>
