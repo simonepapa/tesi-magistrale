@@ -188,7 +188,7 @@ function Dashboard() {
       const crimeIndexes: number[] = [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (jsonData as any)?.features.forEach((item: any) => {
-        crimeIndexes.push(item.properties.crime_index_scalato);
+        crimeIndexes.push(item.properties.crime_index);
       });
       // Fixed intervals: 0-20, 21-50, 51-80, 81-100
       setLegendValues([0, 21, 51, 81]);
