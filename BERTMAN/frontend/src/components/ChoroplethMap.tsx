@@ -196,6 +196,7 @@ function ChoroplethMap({ setInfo, data, color, legendValues }: Props) {
   if (data)
     return (
       <GeoJSON
+        key={`geojson-${color}`}
         data={data as GeoJsonObject}
         style={style as GeoJSONOptions}
         onEachFeature={onEachFeature}
